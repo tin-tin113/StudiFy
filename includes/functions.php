@@ -1,0 +1,671 @@
+<?php
+// Utility Functions for Studify
+// Modular PHP functions for reusable logic
+
+// Function to get user information
+function getUserInfo($user_id, $conn) {
+    $query = "SELECT * FROM users WHERE id = ?";
+    $stmt = $conn->prepare($query);
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    return $result->fetch_assoc();
+}
+
+// Function to get active semester for user
+function getActiveSemester($user_id, $conn) {
+    $query = "SELECT * FROM semesters WHERE user_id = ? AND is_active = 1";
+    $stmt = $conn->prepare($query);
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    return $result->fetch_assoc();
+}
+
+// Function to get all semesters for user
+function getUserSemesters($user_id, $conn) {
+    $query = "SELECT * FROM semesters WHERE user_id = ? ORDER BY created_at DESC";
+    $stmt = $conn->prepare($query);
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    return $result->fetch_all(MYSQLI_ASSOC);
+}
+
+// Function to get all subjects for a semester
+function getSemesterSubjects($semester_id, $conn) {
+    $query = "SELECT * FROM subjects WHERE semester_id = ? ORDER BY created_at DESC";
+    $stmt = $conn->prepare($query);
+    $stmt->bind_param("i", $semester_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    return $result->fetch_all(MYSQLI_ASSOC);
+}
+
+// Function to get all tasks for a subject
+function getSubjectTasks($subject_id, $conn) {
+    $query = "SELECT * FROM tasks WHERE subject_id = ? AND parent_id IS NULL ORDER BY deadline ASC";
+    $stmt = $conn->prepare($query);
+    $stmt->bind_param("i", $subject_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    return $result->fetch_all(MYSQLI_ASSOC);
+}
+
+// Function to get all tasks for user (across all subjects)
+function getUserTasks($user_id, $conn, $limit = 0, $offset = 0) {
+    $query = "SELECT t.*, s.name as subject_name, se.name as semester_name 
+              FROM tasks t
+              JOIN subjects s ON t.subject_id = s.id
+              JOIN semesters se ON s.semester_id = se.id
+              WHERE se.user_id = ? AND t.parent_id IS NULL
+              ORDER BY t.deadline ASC";
+    if ($limit > 0) {
+        $query .= " LIMIT ? OFFSET ?";
+        $stmt = $conn->prepare($query);
+        $stmt->bind_param("iii", $user_id, $limit, $offset);
+    } else {
+        $stmt = $conn->prepare($query);
+        $stmt->bind_param("i", $user_id);
+    }
+    $stmt->execute();
+    $result = $stmt->get_result();
+    return $result->fetch_all(MYSQLI_ASSOC);
+}
+
+// Function to get pending tasks count
+function getPendingTasksCount($user_id, $conn) {
+    $query = "SELECT COUNT(*) as count FROM tasks t
+              JOIN subjects s ON t.subject_id = s.id
+              JOIN semesters se ON s.semester_id = se.id
+              WHERE se.user_id = ? AND t.status = 'Pending' AND t.parent_id IS NULL";
+    $stmt = $conn->prepare($query);
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $row = $result->fetch_assoc();
+    return $row['count'];
+}
+
+// Function to get completed tasks count
+function getCompletedTasksCount($user_id, $conn) {
+    $query = "SELECT COUNT(*) as count FROM tasks t
+              JOIN subjects s ON t.subject_id = s.id
+              JOIN semesters se ON s.semester_id = se.id
+              WHERE se.user_id = ? AND t.status = 'Completed' AND t.parent_id IS NULL";
+    $stmt = $conn->prepare($query);
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $row = $result->fetch_assoc();
+    return $row['count'];
+}
+
+// Function to get total tasks count
+function getTotalTasksCount($user_id, $conn) {
+    $query = "SELECT COUNT(*) as count FROM tasks t
+              JOIN subjects s ON t.subject_id = s.id
+              JOIN semesters se ON s.semester_id = se.id
+              WHERE se.user_id = ? AND t.parent_id IS NULL";
+    $stmt = $conn->prepare($query);
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $row = $result->fetch_assoc();
+    return $row['count'];
+}
+
+// Function to get upcoming tasks (next N days)
+function getUpcomingTasks($user_id, $conn, $days = 7) {
+    $query = "SELECT t.*, s.name as subject_name
+              FROM tasks t
+              JOIN subjects s ON t.subject_id = s.id
+              JOIN semesters se ON s.semester_id = se.id
+              WHERE se.user_id = ? 
+              AND t.status != 'Completed'
+              AND t.parent_id IS NULL
+              AND DATE(t.deadline) BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL ? DAY)
+              ORDER BY t.deadline ASC";
+    $stmt = $conn->prepare($query);
+    $stmt->bind_param("ii", $user_id, $days);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    return $result->fetch_all(MYSQLI_ASSOC);
+}
+
+// Function to calculate task completion percentage
+function getCompletionPercentage($user_id, $conn) {
+    $total = getTotalTasksCount($user_id, $conn);
+    if ($total == 0) return 0;
+    
+    $completed = getCompletedTasksCount($user_id, $conn);
+    return round(($completed / $total) * 100);
+}
+
+// ─── Optimized Dashboard Stats (single query) ───
+function getDashboardStats($user_id, $conn) {
+    $query = "SELECT 
+                COUNT(CASE WHEN t.parent_id IS NULL THEN 1 END) as total_tasks,
+                COUNT(CASE WHEN t.status = 'Pending' AND t.parent_id IS NULL THEN 1 END) as pending_tasks,
+                COUNT(CASE WHEN t.status = 'Completed' AND t.parent_id IS NULL THEN 1 END) as completed_tasks,
+                COUNT(CASE WHEN t.status = 'In Progress' AND t.parent_id IS NULL THEN 1 END) as in_progress_tasks
+              FROM tasks t
+              JOIN subjects s ON t.subject_id = s.id
+              JOIN semesters se ON s.semester_id = se.id
+              WHERE se.user_id = ?";
+    $stmt = $conn->prepare($query);
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    $stats = $stmt->get_result()->fetch_assoc();
+    
+    $stats['completed'] = $stats['completed_tasks'];
+    $stats['pending'] = $stats['pending_tasks'];
+    $stats['completion_pct'] = $stats['total_tasks'] > 0 
+        ? round(($stats['completed_tasks'] / $stats['total_tasks']) * 100) 
+        : 0;
+    
+    // Weekly study minutes
+    $week_start = date('Y-m-d', strtotime('monday this week'));
+    $stmt = $conn->prepare("SELECT COALESCE(SUM(ss.duration), 0) as study_minutes
+        FROM study_sessions ss WHERE ss.user_id = ? AND ss.created_at >= ?");
+    $stmt->bind_param("is", $user_id, $week_start);
+    $stmt->execute();
+    $weekly = $stmt->get_result()->fetch_assoc();
+    $stats['study_minutes'] = $weekly['study_minutes'];
+    
+    return $stats;
+}
+
+// Function to get all tasks in JSON format for calendar
+function getTasksAsJSON($user_id, $conn) {
+    $tasks = getUserTasks($user_id, $conn);
+    $calendarEvents = [];
+    
+    foreach ($tasks as $task) {
+        $color = '';
+        switch ($task['priority']) {
+            case 'High':
+                $color = '#dc3545'; // red
+                break;
+            case 'Medium':
+                $color = '#ffc107'; // yellow
+                break;
+            case 'Low':
+                $color = '#28a745'; // green
+                break;
+            default:
+                $color = '#007bff'; // blue
+        }
+        
+        $calendarEvents[] = [
+            'id' => $task['id'],
+            'title' => $task['title'],
+            'start' => $task['deadline'],
+            'backgroundColor' => $color,
+            'borderColor' => $color,
+            'extendedProps' => [
+                'description' => $task['description'],
+                'priority' => $task['priority'],
+                'type' => $task['type'],
+                'status' => $task['status'],
+                'subject' => $task['subject_name']
+            ]
+        ];
+    }
+    
+    return json_encode($calendarEvents);
+}
+
+// Function to check if user is admin
+function isAdmin($user_id, $conn) {
+    $user = getUserInfo($user_id, $conn);
+    return $user && $user['role'] === 'admin';
+}
+
+// Function to format date for display
+function formatDate($date) {
+    return date('M d, Y', strtotime($date));
+}
+
+// Function to format datetime for display
+function formatDateTime($datetime) {
+    return date('M d, Y H:i', strtotime($datetime));
+}
+
+// Function to get priority badge color
+function getPriorityColor($priority) {
+    switch ($priority) {
+        case 'High':
+            return 'danger';
+        case 'Medium':
+            return 'warning';
+        case 'Low':
+            return 'success';
+        default:
+            return 'info';
+    }
+}
+
+// Function to get status badge color
+function getStatusColor($status) {
+    switch ($status) {
+        case 'Completed':
+            return 'success';
+        case 'In Progress':
+            return 'info';
+        case 'Pending':
+            return 'warning';
+        default:
+            return 'secondary';
+    }
+}
+
+// Function to get type badge color
+function getTypeColor($type) {
+    switch ($type) {
+        case 'Assignment':
+            return 'primary';
+        case 'Quiz':
+            return 'info';
+        case 'Project':
+            return 'secondary';
+        case 'Exam':
+            return 'danger';
+        default:
+            return 'light';
+    }
+}
+
+// Function to get all users (for admin)
+function getAllUsers($conn) {
+    $query = "SELECT * FROM users ORDER BY created_at DESC";
+    $stmt = $conn->prepare($query);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    return $result->fetch_all(MYSQLI_ASSOC);
+}
+
+// Function to get total system tasks count (for admin)
+function getTotalSystemTasks($conn) {
+    $query = "SELECT COUNT(*) as count FROM tasks";
+    $stmt = $conn->prepare($query);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $row = $result->fetch_assoc();
+    return $row['count'];
+}
+
+// Function to get total registered users (for admin)
+function getTotalUsers($conn) {
+    $query = "SELECT COUNT(*) as count FROM users";
+    $stmt = $conn->prepare($query);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $row = $result->fetch_assoc();
+    return $row['count'];
+}
+
+// ─── Subtasks ───
+function getSubtasks($parent_id, $conn) {
+    $query = "SELECT * FROM tasks WHERE parent_id = ? ORDER BY position ASC, created_at ASC";
+    $stmt = $conn->prepare($query);
+    $stmt->bind_param("i", $parent_id);
+    $stmt->execute();
+    return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+}
+
+function getSubtaskProgress($parent_id, $conn) {
+    $query = "SELECT 
+                COUNT(*) as total,
+                SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) as completed
+              FROM tasks WHERE parent_id = ?";
+    $stmt = $conn->prepare($query);
+    $stmt->bind_param("i", $parent_id);
+    $stmt->execute();
+    return $stmt->get_result()->fetch_assoc();
+}
+
+// ─── Pagination Helper ───
+function paginate($total, $per_page, $current_page) {
+    $total_pages = max(1, ceil($total / $per_page));
+    $current_page = max(1, min($current_page, $total_pages));
+    $offset = ($current_page - 1) * $per_page;
+    
+    return [
+        'total' => $total,
+        'per_page' => $per_page,
+        'current_page' => $current_page,
+        'total_pages' => $total_pages,
+        'offset' => $offset,
+        'has_prev' => $current_page > 1,
+        'has_next' => $current_page < $total_pages
+    ];
+}
+
+function renderPagination($pagination, $base_url) {
+    if ($pagination['total_pages'] <= 1) return '';
+    
+    $html = '<nav aria-label="Page navigation"><ul class="pagination pagination-sm justify-content-center mt-3">';
+    
+    // Previous
+    $html .= '<li class="page-item ' . (!$pagination['has_prev'] ? 'disabled' : '') . '">';
+    $html .= '<a class="page-link" href="' . $base_url . '&page=' . ($pagination['current_page'] - 1) . '"><i class="fas fa-chevron-left"></i></a></li>';
+    
+    // Pages
+    $start = max(1, $pagination['current_page'] - 2);
+    $end = min($pagination['total_pages'], $start + 4);
+    $start = max(1, $end - 4);
+    
+    for ($i = $start; $i <= $end; $i++) {
+        $html .= '<li class="page-item ' . ($i == $pagination['current_page'] ? 'active' : '') . '">';
+        $html .= '<a class="page-link" href="' . $base_url . '&page=' . $i . '">' . $i . '</a></li>';
+    }
+    
+    // Next
+    $html .= '<li class="page-item ' . (!$pagination['has_next'] ? 'disabled' : '') . '">';
+    $html .= '<a class="page-link" href="' . $base_url . '&page=' . ($pagination['current_page'] + 1) . '"><i class="fas fa-chevron-right"></i></a></li>';
+    
+    $html .= '</ul></nav>';
+    return $html;
+}
+
+// ─── File Upload Helper ───
+function handleFileUpload($file, $user_id, $conn, $task_id = null, $note_id = null) {
+    if ($file['error'] !== UPLOAD_ERR_OK) {
+        return ['success' => false, 'message' => 'Upload error'];
+    }
+    
+    if ($file['size'] > MAX_FILE_SIZE) {
+        return ['success' => false, 'message' => 'File too large (max 10MB)'];
+    }
+    
+    $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+    if (!in_array($ext, ALLOWED_FILE_TYPES)) {
+        return ['success' => false, 'message' => 'File type not allowed'];
+    }
+    
+    // Create upload directory
+    $user_dir = UPLOAD_DIR . $user_id . '/';
+    if (!is_dir($user_dir)) {
+        mkdir($user_dir, 0755, true);
+    }
+    
+    // Generate unique filename
+    $filename = uniqid() . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '', $file['name']);
+    $filepath = $user_dir . $filename;
+    
+    if (move_uploaded_file($file['tmp_name'], $filepath)) {
+        $stmt = $conn->prepare("INSERT INTO attachments (user_id, task_id, note_id, file_name, file_path, file_size, file_type) VALUES (?, ?, ?, ?, ?, ?, ?)");
+        $relative_path = 'uploads/' . $user_id . '/' . $filename;
+        $stmt->bind_param("iiisssi", $user_id, $task_id, $note_id, $file['name'], $relative_path, $file['size'], $file['type']);
+        $stmt->execute();
+        
+        return ['success' => true, 'id' => $conn->insert_id, 'path' => $relative_path, 'name' => $file['name']];
+    }
+    
+    return ['success' => false, 'message' => 'Failed to save file'];
+}
+
+// Get attachments for a task or note
+function getAttachments($conn, $task_id = null, $note_id = null) {
+    if ($task_id) {
+        $stmt = $conn->prepare("SELECT * FROM attachments WHERE task_id = ? ORDER BY created_at DESC");
+        $stmt->bind_param("i", $task_id);
+    } elseif ($note_id) {
+        $stmt = $conn->prepare("SELECT * FROM attachments WHERE note_id = ? ORDER BY created_at DESC");
+        $stmt->bind_param("i", $note_id);
+    } else {
+        return [];
+    }
+    $stmt->execute();
+    return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+}
+
+// Format file size
+function formatFileSize($bytes) {
+    if ($bytes >= 1048576) return round($bytes / 1048576, 1) . ' MB';
+    if ($bytes >= 1024) return round($bytes / 1024, 1) . ' KB';
+    return $bytes . ' B';
+}
+
+// ─── Profile Photo Upload ───
+function handleProfilePhotoUpload($file, $user_id, $conn) {
+    $allowed = ['jpg', 'jpeg', 'png', 'gif', 'webp'];
+    $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+    
+    if (!in_array($ext, $allowed)) {
+        return ['success' => false, 'message' => 'Only JPG, PNG, GIF, WEBP allowed'];
+    }
+    
+    if ($file['size'] > 5 * 1024 * 1024) {
+        return ['success' => false, 'message' => 'Photo must be under 5MB'];
+    }
+    
+    $photo_dir = UPLOAD_DIR . 'photos/';
+    if (!is_dir($photo_dir)) mkdir($photo_dir, 0755, true);
+    
+    $filename = 'profile_' . $user_id . '_' . time() . '.' . $ext;
+    $filepath = $photo_dir . $filename;
+    
+    if (move_uploaded_file($file['tmp_name'], $filepath)) {
+        $relative = 'uploads/photos/' . $filename;
+        $stmt = $conn->prepare("UPDATE users SET profile_photo = ? WHERE id = ?");
+        $stmt->bind_param("si", $relative, $user_id);
+        $stmt->execute();
+        return ['success' => true, 'path' => $relative];
+    }
+    
+    return ['success' => false, 'message' => 'Upload failed'];
+}
+
+// Function to check if user needs onboarding
+function needsOnboarding($user_id, $conn) {
+    $stmt = $conn->prepare("SELECT onboarding_completed FROM users WHERE id = ?");
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    $result = $stmt->get_result()->fetch_assoc();
+    
+    if ($result && $result['onboarding_completed']) {
+        return false;
+    }
+    
+    // Check if they have semesters, subjects, and tasks
+    $semesters = getUserSemesters($user_id, $conn);
+    if (empty($semesters)) return true;
+    
+    foreach ($semesters as $sem) {
+        $subjects = getSemesterSubjects($sem['id'], $conn);
+        if (!empty($subjects)) {
+            foreach ($subjects as $sub) {
+                $tasks = getSubjectTasks($sub['id'], $conn);
+                if (!empty($tasks)) {
+                    return false; // Has everything set up
+                }
+            }
+        }
+    }
+    return true;
+}
+
+// Function to dismiss onboarding
+function dismissOnboarding($user_id, $conn) {
+    $stmt = $conn->prepare("UPDATE users SET onboarding_completed = 1 WHERE id = ?");
+    $stmt->bind_param("i", $user_id);
+    return $stmt->execute();
+}
+
+// Global search across tasks, notes, subjects
+function globalSearch($user_id, $conn, $query, $limit = 20) {
+    $results = [];
+    $search_term = '%' . $query . '%';
+    
+    // Search tasks
+    $stmt = $conn->prepare("SELECT t.id, t.title, t.status, t.priority, s.name as subject_name 
+        FROM tasks t 
+        JOIN subjects s ON t.subject_id = s.id 
+        JOIN semesters sem ON s.semester_id = sem.id 
+        WHERE sem.user_id = ? AND (t.title LIKE ? OR t.description LIKE ?) 
+        ORDER BY t.deadline ASC LIMIT ?");
+    $stmt->bind_param("issi", $user_id, $search_term, $search_term, $limit);
+    $stmt->execute();
+    $tasks = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    foreach ($tasks as $task) {
+        $results[] = ['type' => 'task', 'data' => $task];
+    }
+    
+    // Search notes (include notes without subjects)
+    $stmt = $conn->prepare("SELECT n.id, n.title, COALESCE(s.name, 'General') as subject_name 
+        FROM notes n 
+        LEFT JOIN subjects s ON n.subject_id = s.id 
+        WHERE n.user_id = ? AND (n.title LIKE ? OR n.content LIKE ?) 
+        ORDER BY n.updated_at DESC LIMIT ?");
+    $stmt->bind_param("issi", $user_id, $search_term, $search_term, $limit);
+    $stmt->execute();
+    $notes = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    foreach ($notes as $note) {
+        $results[] = ['type' => 'note', 'data' => $note];
+    }
+    
+    // Search subjects
+    $stmt = $conn->prepare("SELECT s.id, s.name, sem.name as semester_name 
+        FROM subjects s 
+        JOIN semesters sem ON s.semester_id = sem.id 
+        WHERE sem.user_id = ? AND (s.name LIKE ? OR s.instructor_name LIKE ?) 
+        ORDER BY s.name ASC LIMIT ?");
+    $stmt->bind_param("issi", $user_id, $search_term, $search_term, $limit);
+    $stmt->execute();
+    $subjects = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    foreach ($subjects as $sub) {
+        $results[] = ['type' => 'subject', 'data' => $sub];
+    }
+    
+    return $results;
+}
+
+// ============================================
+// STUDY BUDDY FUNCTIONS
+// ============================================
+
+// Get accepted buddy for a user (only one active buddy at a time)
+function getAcceptedBuddy($user_id, $conn) {
+    $stmt = $conn->prepare("SELECT sb.*, 
+        CASE WHEN sb.requester_id = ? THEN sb.partner_id ELSE sb.requester_id END as buddy_id
+        FROM study_buddies sb 
+        WHERE (sb.requester_id = ? OR sb.partner_id = ?) AND sb.status = 'accepted'
+        LIMIT 1");
+    $stmt->bind_param("iii", $user_id, $user_id, $user_id);
+    $stmt->execute();
+    $result = $stmt->get_result()->fetch_assoc();
+    if ($result) {
+        $buddy = getUserInfo($result['buddy_id'], $conn);
+        $result['buddy'] = $buddy;
+    }
+    return $result;
+}
+
+// Get pending buddy requests received
+function getPendingBuddyRequests($user_id, $conn) {
+    $stmt = $conn->prepare("SELECT sb.*, u.name as requester_name, u.email as requester_email, 
+        u.course as requester_course, u.year_level as requester_year, u.profile_photo as requester_photo
+        FROM study_buddies sb
+        JOIN users u ON u.id = sb.requester_id
+        WHERE sb.partner_id = ? AND sb.status = 'pending'
+        ORDER BY sb.created_at DESC");
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+}
+
+// Get pending buddy request sent by user
+function getSentBuddyRequest($user_id, $conn) {
+    $stmt = $conn->prepare("SELECT sb.*, u.name as partner_name, u.email as partner_email
+        FROM study_buddies sb
+        JOIN users u ON u.id = sb.partner_id
+        WHERE sb.requester_id = ? AND sb.status = 'pending'
+        LIMIT 1");
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    return $stmt->get_result()->fetch_assoc();
+}
+
+// Generate unique invite code
+function generateBuddyCode() {
+    return strtoupper(substr(bin2hex(random_bytes(4)), 0, 8));
+}
+
+// Get buddy progress stats (privacy-safe: only completion %)
+function getBuddyProgress($buddy_id, $conn) {
+    $stats = getDashboardStats($buddy_id, $conn);
+    $total = $stats['total_tasks'] ?? 0;
+    $completed = $stats['completed_tasks'] ?? 0;
+    $pct = $total > 0 ? round(($completed / $total) * 100) : 0;
+
+    // Study time this week
+    $stmt = $conn->prepare("SELECT COALESCE(SUM(duration),0) as week_minutes, COUNT(*) as week_sessions
+        FROM study_sessions WHERE user_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)");
+    $stmt->bind_param("i", $buddy_id);
+    $stmt->execute();
+    $study = $stmt->get_result()->fetch_assoc();
+
+    // Streak: consecutive days with completed tasks
+    $stmt = $conn->prepare("SELECT DATE(t.updated_at) as d FROM tasks t
+        JOIN subjects s ON t.subject_id = s.id
+        JOIN semesters sem ON s.semester_id = sem.id
+        WHERE sem.user_id = ? AND t.status = 'Completed'
+        GROUP BY DATE(t.updated_at) ORDER BY d DESC");
+    $stmt->bind_param("i", $buddy_id);
+    $stmt->execute();
+    $days = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $streak = 0;
+    $check = new DateTime();
+    foreach ($days as $row) {
+        $day = new DateTime($row['d']);
+        if ($day->format('Y-m-d') === $check->format('Y-m-d')) {
+            $streak++;
+            $check->modify('-1 day');
+        } else {
+            break;
+        }
+    }
+
+    // Pending tasks due soon (count only, no details)
+    $stmt = $conn->prepare("SELECT COUNT(*) as due_soon FROM tasks t
+        JOIN subjects s ON t.subject_id = s.id
+        JOIN semesters sem ON s.semester_id = sem.id
+        WHERE sem.user_id = ? AND t.status != 'Completed' AND t.deadline <= DATE_ADD(NOW(), INTERVAL 3 DAY)");
+    $stmt->bind_param("i", $buddy_id);
+    $stmt->execute();
+    $due = $stmt->get_result()->fetch_assoc();
+
+    return [
+        'total_tasks' => $total,
+        'completed_tasks' => $completed,
+        'completion_pct' => $pct,
+        'week_minutes' => $study['week_minutes'],
+        'week_sessions' => $study['week_sessions'],
+        'streak' => $streak,
+        'due_soon' => $due['due_soon']
+    ];
+}
+
+// Get unread nudge count for a user
+function getUnreadNudgeCount($user_id, $conn) {
+    $stmt = $conn->prepare("SELECT COUNT(*) as cnt FROM buddy_nudges WHERE receiver_id = ? AND is_read = 0");
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    return $stmt->get_result()->fetch_assoc()['cnt'];
+}
+
+// Get recent nudges for a user
+function getBuddyNudges($user_id, $conn, $limit = 10) {
+    $stmt = $conn->prepare("SELECT bn.*, u.name as sender_name, u.profile_photo as sender_photo
+        FROM buddy_nudges bn
+        JOIN users u ON u.id = bn.sender_id
+        WHERE bn.receiver_id = ?
+        ORDER BY bn.created_at DESC LIMIT ?");
+    $stmt->bind_param("ii", $user_id, $limit);
+    $stmt->execute();
+    return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+}
+
+?>

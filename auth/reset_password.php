@@ -1,0 +1,123 @@
+<?php
+/**
+ * STUDIFY – Reset Password
+ * Validates token and allows password change
+ */
+define('BASE_URL', '../');
+require_once '../config/db.php';
+require_once '../includes/auth.php';
+
+if (isset($_SESSION['user_id'])) {
+    header("Location: " . BASE_URL . "student/dashboard.php");
+    exit();
+}
+
+$token = $_GET['token'] ?? '';
+$error = '';
+$valid = false;
+$email = '';
+
+// Validate token
+if (!empty($token)) {
+    $stmt = $conn->prepare("SELECT email, expires_at FROM password_resets WHERE token = ? AND used = 0");
+    $stmt->bind_param("s", $token);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    
+    if ($row = $result->fetch_assoc()) {
+        if (new DateTime($row['expires_at']) > new DateTime()) {
+            $valid = true;
+            $email = $row['email'];
+        } else {
+            $error = 'This reset link has expired. Please request a new one.';
+        }
+    } else {
+        $error = 'Invalid or already used reset link.';
+    }
+} else {
+    $error = 'No reset token provided.';
+}
+
+// Handle password reset
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $valid) {
+    requireCSRF();
+    $password = $_POST['password'] ?? '';
+    $confirm = $_POST['confirm_password'] ?? '';
+    
+    if (empty($password) || strlen($password) < 6) {
+        $error = 'Password must be at least 6 characters.';
+    } elseif ($password !== $confirm) {
+        $error = 'Passwords do not match.';
+    } else {
+        $hashed = password_hash($password, PASSWORD_BCRYPT);
+        
+        // Update password
+        $stmt = $conn->prepare("UPDATE users SET password = ?, login_attempts = 0, locked_until = NULL WHERE email = ?");
+        $stmt->bind_param("ss", $hashed, $email);
+        $stmt->execute();
+        
+        // Mark token as used
+        $stmt = $conn->prepare("UPDATE password_resets SET used = 1 WHERE token = ?");
+        $stmt->bind_param("s", $token);
+        $stmt->execute();
+        
+        header("Location: login.php?reset=success");
+        exit();
+    }
+}
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reset Password – Studify</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="<?php echo BASE_URL; ?>assets/css/style.css">
+    <link rel="icon" type="image/png" href="<?php echo BASE_URL; ?>assets/images/logo.png">
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-card">
+            <div class="auth-header">
+                <div class="brand-icon"><img src="<?php echo BASE_URL; ?>assets/images/logo.png" alt="Studify"></div>
+                <h2>Set New Password</h2>
+                <p>Create a new password for your account</p>
+            </div>
+
+            <?php if ($error): ?>
+                <div class="alert alert-danger">
+                    <i class="fas fa-exclamation-circle"></i> <?php echo htmlspecialchars($error); ?>
+                </div>
+            <?php endif; ?>
+
+            <?php if ($valid): ?>
+            <form method="POST" action="">
+                <?php echo csrfTokenField(); ?>
+                <div class="mb-3">
+                    <label for="password" class="form-label">New Password</label>
+                    <input type="password" class="form-control" id="password" name="password" placeholder="Min 6 characters" required>
+                </div>
+
+                <div class="mb-3">
+                    <label for="confirm_password" class="form-label">Confirm Password</label>
+                    <input type="password" class="form-control" id="confirm_password" name="confirm_password" placeholder="Repeat new password" required>
+                </div>
+
+                <button type="submit" class="btn btn-login">
+                    <i class="fas fa-save"></i> Reset Password
+                </button>
+            </form>
+            <?php endif; ?>
+
+            <div class="auth-footer">
+                <a href="login.php">← Back to Login</a>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="<?php echo BASE_URL; ?>assets/js/main.js"></script>
+</body>
+</html>
