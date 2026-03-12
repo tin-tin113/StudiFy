@@ -32,10 +32,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     if (empty($title) || $subj_id <= 0 || empty($deadline)) {
         $error = 'Title, subject, and deadline are required.';
     } else {
-        $stmt = $conn->prepare("INSERT INTO tasks (subject_id, title, description, type, priority, deadline) VALUES (?, ?, ?, ?, ?, ?)");
-        $stmt->bind_param("isssss", $subj_id, $title, $description, $type, $priority, $deadline);
-        if ($stmt->execute()) { $success = 'Task added successfully!'; }
-        else { $error = 'Error adding task.'; }
+        // Verify subject belongs to current user
+        $own_check = $conn->prepare("SELECT s.id FROM subjects s JOIN semesters sem ON s.semester_id = sem.id WHERE s.id = ? AND sem.user_id = ?");
+        $own_check->bind_param("ii", $subj_id, $user_id);
+        $own_check->execute();
+        if ($own_check->get_result()->num_rows === 0) {
+            $error = 'Subject not found or access denied.';
+        } else {
+            $stmt = $conn->prepare("INSERT INTO tasks (subject_id, title, description, type, priority, deadline) VALUES (?, ?, ?, ?, ?, ?)");
+            $stmt->bind_param("isssss", $subj_id, $title, $description, $type, $priority, $deadline);
+            if ($stmt->execute()) { $success = 'Task added successfully!'; }
+            else { $error = 'Error adding task.'; }
+        }
     }
 }
 

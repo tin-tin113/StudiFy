@@ -64,7 +64,8 @@ CREATE TABLE IF NOT EXISTS subjects (
 -- Tasks Table (with subtasks support via parent_id)
 CREATE TABLE IF NOT EXISTS tasks (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    subject_id INT NOT NULL,
+    user_id INT NOT NULL,
+    subject_id INT DEFAULT NULL COMMENT 'Optional link to a subject',
     parent_id INT DEFAULT NULL COMMENT 'For subtasks - references parent task',
     title VARCHAR(255) NOT NULL,
     description TEXT,
@@ -78,8 +79,10 @@ CREATE TABLE IF NOT EXISTS tasks (
     position INT DEFAULT 0 COMMENT 'For Kanban ordering',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE SET NULL,
     FOREIGN KEY (parent_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    INDEX idx_user_id (user_id),
     INDEX idx_subject_id (subject_id),
     INDEX idx_deadline (deadline),
     INDEX idx_status (status),
@@ -102,6 +105,22 @@ CREATE TABLE IF NOT EXISTS study_sessions (
     INDEX idx_created_at (created_at)
 );
 
+-- Notes Table (with rich text support)
+CREATE TABLE IF NOT EXISTS notes (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    subject_id INT DEFAULT NULL,
+    user_id INT NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    content LONGTEXT,
+    content_type ENUM('plain', 'markdown') DEFAULT 'markdown',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE SET NULL,
+    INDEX idx_subject_id (subject_id),
+    INDEX idx_user_id (user_id)
+);
+
 -- File Attachments Table
 CREATE TABLE IF NOT EXISTS attachments (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -115,6 +134,7 @@ CREATE TABLE IF NOT EXISTS attachments (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE,
     INDEX idx_task_id (task_id),
     INDEX idx_note_id (note_id),
     INDEX idx_user_id (user_id)
@@ -146,27 +166,12 @@ CREATE TABLE IF NOT EXISTS announcement_reads (
     UNIQUE KEY unique_read (announcement_id, user_id)
 );
 
--- Notes Table (with rich text support)
-CREATE TABLE IF NOT EXISTS notes (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    subject_id INT DEFAULT NULL,
-    user_id INT NOT NULL,
-    title VARCHAR(255) NOT NULL,
-    content LONGTEXT,
-    content_type ENUM('plain', 'markdown') DEFAULT 'markdown',
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    INDEX idx_subject_id (subject_id),
-    INDEX idx_user_id (user_id)
-);
-
 -- Study Buddy Pairings
 CREATE TABLE IF NOT EXISTS study_buddies (
     id INT AUTO_INCREMENT PRIMARY KEY,
     requester_id INT NOT NULL,
     partner_id INT NOT NULL,
-    status ENUM('pending', 'accepted', 'declined') DEFAULT 'pending',
+    status ENUM('pending', 'accepted', 'declined', 'unlinked') DEFAULT 'pending',
     invite_code VARCHAR(32) DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -191,6 +196,30 @@ CREATE TABLE IF NOT EXISTS buddy_nudges (
     FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_receiver (receiver_id),
     INDEX idx_is_read (is_read)
+);
+
+-- Activity Log (optional – for dedicated audit trail)
+CREATE TABLE IF NOT EXISTS activity_log (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT DEFAULT NULL,
+    action VARCHAR(255) NOT NULL,
+    details TEXT,
+    ip_address VARCHAR(45) DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL,
+    INDEX idx_user_id (user_id),
+    INDEX idx_created_at (created_at)
+);
+
+-- Login Attempts Tracking (standalone table for detailed logging)
+CREATE TABLE IF NOT EXISTS login_attempts (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    email VARCHAR(255) NOT NULL,
+    ip_address VARCHAR(45) DEFAULT NULL,
+    attempted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    success TINYINT(1) DEFAULT 0,
+    INDEX idx_email (email),
+    INDEX idx_attempted_at (attempted_at)
 );
 
 -- ============================================
@@ -229,3 +258,74 @@ CREATE TABLE IF NOT EXISTS buddy_nudges (
 -- VALUES ('John Doe', 'student@studify.com', 'USE_SETUP_PHP_INSTEAD', 'student', 'BS Information Systems', 3);
 
 -- Note: Password is 'password123' - Use setup.php to create users with proper hashing
+
+-- ============================================
+-- v3.0 – Buddy Chat / Instant Messaging Tables
+-- ============================================
+
+-- Buddy Chat Messages (Instant Messaging)
+CREATE TABLE IF NOT EXISTS buddy_messages (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    sender_id INT NOT NULL,
+    receiver_id INT NOT NULL,
+    message TEXT NOT NULL,
+    message_type ENUM('text','nudge','emoji','system') DEFAULT 'text',
+    reply_to_id INT DEFAULT NULL,
+    is_read TINYINT(1) DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (reply_to_id) REFERENCES buddy_messages(id) ON DELETE SET NULL,
+    INDEX idx_conversation (sender_id, receiver_id, created_at),
+    INDEX idx_receiver_unread (receiver_id, is_read),
+    INDEX idx_created_at (created_at)
+);
+
+-- Typing Status Tracking (for real-time typing indicators)
+CREATE TABLE IF NOT EXISTS buddy_typing_status (
+    user_id INT PRIMARY KEY,
+    typing_until TIMESTAMP NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- ============================================
+-- Migration queries for v3.0 (Buddy Chat):
+-- ============================================
+-- ALTER TABLE users ADD COLUMN last_active TIMESTAMP NULL DEFAULT NULL AFTER locked_until;
+-- ALTER TABLE study_buddies MODIFY COLUMN status ENUM('pending', 'accepted', 'declined', 'unlinked') DEFAULT 'pending';
+
+-- ============================================
+-- v3.1 – Buddy Safety & Performance
+-- ============================================
+
+-- Buddy Blocks (prevent requests & messages)
+CREATE TABLE IF NOT EXISTS buddy_blocks (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    blocker_id INT NOT NULL,
+    blocked_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (blocker_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (blocked_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_block (blocker_id, blocked_id),
+    INDEX idx_blocker (blocker_id),
+    INDEX idx_blocked (blocked_id)
+);
+
+-- Buddy Reports (admin review queue)
+CREATE TABLE IF NOT EXISTS buddy_reports (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    reporter_id INT NOT NULL,
+    reported_id INT NOT NULL,
+    reason ENUM('harassment', 'spam', 'inappropriate', 'impersonation', 'other') NOT NULL,
+    details TEXT,
+    status ENUM('pending', 'reviewed', 'resolved', 'dismissed') DEFAULT 'pending',
+    reviewed_by INT DEFAULT NULL,
+    reviewed_at TIMESTAMP NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (reporter_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (reported_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL,
+    INDEX idx_reporter (reporter_id),
+    INDEX idx_reported (reported_id),
+    INDEX idx_status (status)
+);

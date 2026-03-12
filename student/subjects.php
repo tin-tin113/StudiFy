@@ -44,10 +44,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (empty($name) || $sem_id <= 0) {
             $error = 'Subject name and semester are required.';
         } else {
-            $stmt = $conn->prepare("INSERT INTO subjects (semester_id, name, instructor_name) VALUES (?, ?, ?)");
-            $stmt->bind_param("iss", $sem_id, $name, $instructor);
-            if ($stmt->execute()) { $success = 'Subject added successfully!'; }
-            else { $error = 'Error adding subject.'; }
+            // Verify semester belongs to current user
+            $sem_check = $conn->prepare("SELECT id FROM semesters WHERE id = ? AND user_id = ?");
+            $sem_check->bind_param("ii", $sem_id, $user_id);
+            $sem_check->execute();
+            if ($sem_check->get_result()->num_rows === 0) {
+                $error = 'Semester not found or access denied.';
+            } else {
+                $stmt = $conn->prepare("INSERT INTO subjects (semester_id, name, instructor_name) VALUES (?, ?, ?)");
+                $stmt->bind_param("iss", $sem_id, $name, $instructor);
+                if ($stmt->execute()) { $success = 'Subject added successfully!'; }
+                else { $error = 'Error adding subject.'; }
+            }
         }
     } elseif ($action === 'edit') {
         $subj_id = intval($_POST['subject_id'] ?? 0);
@@ -57,16 +65,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (empty($name) || $subj_id <= 0) {
             $error = 'Subject name is required.';
         } else {
-            $stmt = $conn->prepare("UPDATE subjects SET name = ?, instructor_name = ? WHERE id = ?");
-            $stmt->bind_param("ssi", $name, $instructor, $subj_id);
-            if ($stmt->execute()) { $success = 'Subject updated!'; }
-            else { $error = 'Error updating subject.'; }
+            // Verify subject belongs to current user
+            $check = $conn->prepare("SELECT s.id FROM subjects s JOIN semesters sem ON s.semester_id = sem.id WHERE s.id = ? AND sem.user_id = ?");
+            $check->bind_param("ii", $subj_id, $user_id);
+            $check->execute();
+            if ($check->get_result()->num_rows === 0) {
+                $error = 'Subject not found or access denied.';
+            } else {
+                $stmt = $conn->prepare("UPDATE subjects SET name = ?, instructor_name = ? WHERE id = ?");
+                $stmt->bind_param("ssi", $name, $instructor, $subj_id);
+                if ($stmt->execute()) { $success = 'Subject updated!'; }
+                else { $error = 'Error updating subject.'; }
+            }
         }
     } elseif ($action === 'delete') {
         $subj_id = intval($_POST['subject_id'] ?? 0);
         if ($subj_id > 0) {
-            $stmt = $conn->prepare("DELETE FROM subjects WHERE id = ?");
-            $stmt->bind_param("i", $subj_id);
+            // Verify subject belongs to current user before deleting
+            $stmt = $conn->prepare("DELETE s FROM subjects s JOIN semesters sem ON s.semester_id = sem.id WHERE s.id = ? AND sem.user_id = ?");
+            $stmt->bind_param("ii", $subj_id, $user_id);
             if ($stmt->execute()) { $success = 'Subject deleted!'; }
             else { $error = 'Error deleting subject.'; }
         }

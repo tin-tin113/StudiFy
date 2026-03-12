@@ -36,16 +36,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     } elseif ($action === 'activate') {
         $sem_id = intval($_POST['semester_id'] ?? 0);
-        $conn->query("UPDATE semesters SET is_active = 0 WHERE user_id = $user_id");
+        $deactivate = $conn->prepare("UPDATE semesters SET is_active = 0 WHERE user_id = ?");
+        $deactivate->bind_param("i", $user_id);
+        $deactivate->execute();
         $stmt = $conn->prepare("UPDATE semesters SET is_active = 1 WHERE id = ? AND user_id = ?");
         $stmt->bind_param("ii", $sem_id, $user_id);
         if ($stmt->execute()) { $success = 'Semester activated!'; }
     } elseif ($action === 'delete') {
         $sem_id = intval($_POST['semester_id'] ?? 0);
-        $stmt = $conn->prepare("DELETE FROM semesters WHERE id = ? AND user_id = ?");
-        $stmt->bind_param("ii", $sem_id, $user_id);
-        if ($stmt->execute()) { $success = 'Semester deleted!'; }
-        else { $error = 'Error deleting semester.'; }
+        // Prevent deleting the active semester
+        $active_check = $conn->prepare("SELECT is_active FROM semesters WHERE id = ? AND user_id = ?");
+        $active_check->bind_param("ii", $sem_id, $user_id);
+        $active_check->execute();
+        $sem_row = $active_check->get_result()->fetch_assoc();
+        if ($sem_row && $sem_row['is_active']) {
+            $error = 'Cannot delete the active semester. Deactivate it first by activating a different semester.';
+        } else {
+            $stmt = $conn->prepare("DELETE FROM semesters WHERE id = ? AND user_id = ?");
+            $stmt->bind_param("ii", $sem_id, $user_id);
+            if ($stmt->execute()) { $success = 'Semester deleted!'; }
+            else { $error = 'Error deleting semester.'; }
+        }
     }
 }
 

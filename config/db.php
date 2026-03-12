@@ -46,7 +46,8 @@ function cleanInput($data) {
     return trim($data);
 }
 
-// Legacy alias - kept for backwards compatibility
+// Legacy alias – trim only, NOT a security sanitizer.
+// SQL safety: use prepared statements. XSS safety: use htmlspecialchars() on output.
 function sanitize($data) {
     return cleanInput($data);
 }
@@ -92,6 +93,8 @@ function requireCSRF() {
         header("Location: " . ($_SERVER['HTTP_REFERER'] ?? 'index.php'));
         exit();
     }
+    // Rotate token after successful validation to prevent replay attacks
+    unset($_SESSION['csrf_token']);
 }
 
 // Function to redirect with message

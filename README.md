@@ -26,40 +26,58 @@ Studify is a semester-based task management application that helps students:
 /Studify/
 │
 ├── config/
-│   └── db.php                  # Database configuration
+│   └── db.php                  # Database configuration & CSRF helpers
 │
 ├── includes/
-│   ├── header.php              # Navigation header
-│   ├── footer.php              # Footer
-│   ├── sidebar.php             # Sidebar navigation
-│   ├── auth.php                # Authentication helpers
-│   └── functions.php           # Utility functions
+│   ├── header.php              # Navigation header with sidebar
+│   ├── footer.php              # Footer with JS includes
+│   ├── sidebar.php             # Sidebar (legacy, integrated into header)
+│   ├── auth.php                # Authentication & session helpers
+│   └── functions.php           # Utility functions (CRUD, search, buddy)
 │
 ├── auth/
-│   ├── login.php               # User login
+│   ├── login.php               # User login with brute-force protection
 │   ├── register.php            # User registration
-│   ├── logout.php              # Logout
-│   └── profile.php             # User profile
+│   ├── logout.php              # Secure logout
+│   ├── forgot_password.php     # Token-based password reset request
+│   ├── reset_password.php      # Password reset via token
+│   └── profile.php             # User profile with photo upload
 │
 ├── student/
-│   ├── dashboard.php           # Student dashboard
+│   ├── dashboard.php           # Student dashboard with analytics
 │   ├── semesters.php           # Semester management
 │   ├── subjects.php            # Subject management
-│   ├── tasks.php               # Task management
-│   ├── calendar.php            # Calendar view
-│   └── pomodoro.php            # Pomodoro timer
+│   ├── tasks.php               # Task management (AJAX toggle/delete)
+│   ├── calendar.php            # FullCalendar integration
+│   ├── notes.php               # Notes per subject
+│   ├── pomodoro.php            # Pomodoro timer with ambiance
+│   ├── study_analytics.php     # Study analytics & insights
+│   ├── study_buddy.php         # Study buddy accountability system
+│   ├── global_search.php       # AJAX global search endpoint
+│   ├── dismiss_announcement.php # AJAX dismiss announcement
+│   └── dismiss_onboarding.php  # AJAX dismiss onboarding
 │
 ├── admin/
-│   ├── admin_dashboard.php     # Admin dashboard
-│   └── user_details.php        # User details view
+│   ├── admin_dashboard.php     # Admin dashboard & system overview
+│   ├── manage_users.php        # User management (CRUD, role change)
+│   ├── announcements.php       # Announcement management
+│   ├── system_reports.php      # System reports with charts
+│   ├── activity_log.php        # Recent system activity viewer
+│   ├── system_settings.php     # Settings, password reset, data cleanup
+│   └── user_details.php        # Detailed user profile view
 │
 ├── assets/
 │   ├── css/
 │   │   └── style.css           # Custom styling
 │   └── js/
-│       └── main.js             # Custom JavaScript
+│       └── main.js             # Custom JavaScript & AJAX handlers
 │
-├── database.sql                # Database schema
+├── uploads/
+│   └── avatars/                # User profile photos
+│
+├── database.sql                # Database schema (v2.0)
+├── setup.php                   # Automated database setup script
+├── manifest.json               # PWA manifest
 └── index.php                   # Landing page
 ```
 
@@ -135,10 +153,13 @@ $db_name = 'studify';
 - Create tasks with detailed information
 - Task fields: Title, Description, Deadline, Priority, Type, Status
 - Priority levels: Low, Medium, High
-- Task types: Assignment, Quiz, Project, Exam
-- Status tracking: Pending, Ongoing, Completed
+- Task types: Assignment, Quiz, Project, Exam, Report, Other
+- Status tracking: Pending, In Progress, Completed
+- Subtask support via parent-child relationships
+- Recurring tasks (Daily, Weekly, Monthly)
 - Edit and delete tasks
 - Filter and sort tasks
+- AJAX-powered status toggle and deletion
 
 ### 5. **Dashboard**
 - Overview of student progress
@@ -163,11 +184,35 @@ $db_name = 'studify';
 - Today's and 30-day statistics
 
 ### 8. **Admin Panel**
-- View all registered users
-- Delete users from system
-- System statistics dashboard
-- View user details and progress
-- Manage system overall
+- System overview dashboard with statistics
+- User management (view, search, delete, role change)
+- Announcement management (create, edit, delete with priority & expiry)
+- System reports with interactive charts (Chart.js)
+- Activity log (recent tasks, study sessions, registrations)
+- System settings (password reset, data cleanup tools)
+- View detailed user progress and study stats
+
+### 9. **Notes**
+- Create and manage notes per subject or general
+- Search and filter notes
+- Markdown content support
+
+### 10. **Study Analytics**
+- Study streaks and productivity insights
+- Daily, weekly, and monthly study time charts
+- Day-of-week activity radar chart
+- Average session length tracking
+
+### 11. **Study Buddy**
+- Pair with classmates for mutual accountability
+- Send/accept/decline buddy requests
+- Send motivational nudges to your buddy
+- View buddy's progress (privacy-safe stats only)
+- Rate-limited messaging (10 nudges/day)
+
+### 12. **Global Search**
+- Search across tasks, notes, and subjects
+- Real-time AJAX-powered results
 
 ## 🔒 Security Features
 
@@ -192,19 +237,40 @@ $db_name = 'studify';
 ## 📊 Database Schema
 
 ### Users Table
-- id, name, email, password, role, course, year_level, created_at, updated_at
+- id, name, email, password, role, course, year_level, profile_photo, onboarding_completed, login_attempts, locked_until, created_at, updated_at
+
+### Password Resets Table
+- id, email, token, expires_at, used, created_at
 
 ### Semesters Table
-- id, user_id (FK), name, is_active, created_at, updated_at
+- id, user_id (FK → users), name, is_active, created_at, updated_at
 
 ### Subjects Table
-- id, semester_id (FK), name, instructor_name, created_at, updated_at
+- id, semester_id (FK → semesters), name, instructor_name, created_at, updated_at
 
 ### Tasks Table
-- id, subject_id (FK), title, description, deadline, priority, type, status, created_at, updated_at
+- id, subject_id (FK → subjects), parent_id (FK → tasks, self-referencing), title, description, deadline, priority, type, status, is_recurring, recurrence_type, recurrence_end, position, created_at, updated_at
 
-### Study Sessions Table (Optional)
-- id, user_id (FK), duration, session_type, created_at
+### Study Sessions Table
+- id, user_id (FK → users), task_id (FK → tasks), subject_id (FK → subjects), duration, session_type, created_at
+
+### Notes Table
+- id, subject_id (FK → subjects), user_id (FK → users), title, content, content_type, created_at, updated_at
+
+### Attachments Table
+- id, user_id (FK → users), task_id (FK → tasks), note_id (FK → notes), file_name, file_path, file_size, file_type, created_at
+
+### Announcements Table
+- id, admin_id (FK → users), title, content, priority, expires_at, created_at, updated_at
+
+### Announcement Reads Table
+- id, announcement_id (FK → announcements), user_id (FK → users), read_at
+
+### Study Buddies Table
+- id, requester_id (FK → users), partner_id (FK → users), status, invite_code, created_at, updated_at
+
+### Buddy Nudges Table
+- id, sender_id (FK → users), receiver_id (FK → users), message, is_read, created_at
 
 ## 🔄 User Workflows
 
@@ -221,11 +287,12 @@ $db_name = 'studify';
 
 ### Admin Workflow:
 1. Login with admin credentials
-2. View system statistics
+2. View system statistics on dashboard
 3. Monitor user registrations
-4. View user details and progress
-4. Delete users if needed
-5. Review system health
+4. Manage users (view details, change roles, delete)
+5. Create and manage announcements
+6. Review system reports and activity log
+7. Perform maintenance via system settings
 
 ## 🛠️ Troubleshooting
 
@@ -272,10 +339,10 @@ This project is created for educational purposes.
 For issues or questions about the system, ensure:
 1. All files are properly placed in `/www/Studify/` directory
 2. MySQL database is imported correctly
-3. PHP version supports the features (PHP 7.0+)
+3. PHP version supports the features (PHP 8.0+)
 4. Laragon services are running
 
 ---
 
-**Studify Version 1.0**
+**Studify Version 2.0**
 Developed as a comprehensive academic task management system for students.

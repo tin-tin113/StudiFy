@@ -40,6 +40,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'cleanup_completed') {
         $days = intval($_POST['days'] ?? 90);
+        if ($days < 30) { $days = 30; }
         $stmt = $conn->prepare("DELETE FROM tasks WHERE status = 'Completed' AND updated_at < DATE_SUB(NOW(), INTERVAL ? DAY)");
         $stmt->bind_param("i", $days);
         if ($stmt->execute()) {
@@ -52,6 +53,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     if ($action === 'cleanup_sessions') {
         $days = intval($_POST['days'] ?? 90);
+        if ($days < 30) { $days = 30; }
         $stmt = $conn->prepare("DELETE FROM study_sessions WHERE created_at < DATE_SUB(NOW(), INTERVAL ? DAY)");
         $stmt->bind_param("i", $days);
         if ($stmt->execute()) {

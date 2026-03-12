@@ -13,37 +13,42 @@ requireAdmin();
 
 $page_title = 'Activity Log';
 
-// Recent tasks created (last 20)
-$recent_tasks = [];
-$result = $conn->query("SELECT t.*, s.name as subject_name, u.name as user_name, u.email as user_email
-                         FROM tasks t 
-                         JOIN subjects s ON t.subject_id = s.id 
-                         JOIN semesters sem ON s.semester_id = sem.id 
-                         JOIN users u ON sem.user_id = u.id 
-                         ORDER BY t.created_at DESC LIMIT 20");
-if ($result) {
-    while ($row = $result->fetch_assoc()) $recent_tasks[] = $row;
-}
-
-// Recent study sessions (last 20)
-$recent_sessions = [];
-$result = $conn->query("SELECT ss.*, u.name as user_name, u.email as user_email
-                         FROM study_sessions ss 
-                         JOIN users u ON ss.user_id = u.id 
-                         ORDER BY ss.created_at DESC LIMIT 20");
-if ($result) {
-    while ($row = $result->fetch_assoc()) $recent_sessions[] = $row;
-}
-
-// Recent user registrations (last 10)
-$recent_users = [];
-$result = $conn->query("SELECT * FROM users ORDER BY created_at DESC LIMIT 10");
-if ($result) {
-    while ($row = $result->fetch_assoc()) $recent_users[] = $row;
-}
-
 // Filter
 $filter = $_GET['filter'] ?? 'all';
+
+// Recent tasks created (last 20) — only query when needed
+$recent_tasks = [];
+if ($filter === 'all' || $filter === 'tasks') {
+    $result = $conn->query("SELECT t.*, COALESCE(s.name, 'General') as subject_name, u.name as user_name, u.email as user_email
+                             FROM tasks t 
+                             LEFT JOIN subjects s ON t.subject_id = s.id 
+                             JOIN users u ON t.user_id = u.id 
+                             ORDER BY t.created_at DESC LIMIT 20");
+    if ($result) {
+        while ($row = $result->fetch_assoc()) $recent_tasks[] = $row;
+    }
+}
+
+// Recent study sessions (last 20) — only query when needed
+$recent_sessions = [];
+if ($filter === 'all' || $filter === 'study') {
+    $result = $conn->query("SELECT ss.*, u.name as user_name, u.email as user_email
+                             FROM study_sessions ss 
+                             JOIN users u ON ss.user_id = u.id 
+                             ORDER BY ss.created_at DESC LIMIT 20");
+    if ($result) {
+        while ($row = $result->fetch_assoc()) $recent_sessions[] = $row;
+    }
+}
+
+// Recent user registrations (last 10) — only query when needed
+$recent_users = [];
+if ($filter === 'all' || $filter === 'users') {
+    $result = $conn->query("SELECT * FROM users ORDER BY created_at DESC LIMIT 10");
+    if ($result) {
+        while ($row = $result->fetch_assoc()) $recent_users[] = $row;
+    }
+}
 ?>
 <?php include '../includes/header.php'; ?>
 

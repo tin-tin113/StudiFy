@@ -12,7 +12,6 @@ requireLogin();
 requireAdmin();
 
 $page_title = 'Admin Dashboard';
-$user_id = getCurrentUserId();
 
 // Statistics
 $total_users = getTotalUsers($conn);

@@ -15,6 +15,11 @@ if (!isLoggedIn()) {
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        echo json_encode(['success' => false, 'error' => 'Invalid security token']);
+        exit();
+    }
+
     $user_id = getCurrentUserId();
     $ann_id = intval($_POST['announcement_id'] ?? 0);
 

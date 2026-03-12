@@ -8,7 +8,11 @@ require_once '../config/db.php';
 require_once '../includes/auth.php';
 
 if (isset($_SESSION['user_id'])) {
-    header("Location: " . BASE_URL . "student/dashboard.php");
+    if (isset($_SESSION['role']) && $_SESSION['role'] === 'admin') {
+        header("Location: " . BASE_URL . "admin/admin_dashboard.php");
+    } else {
+        header("Location: " . BASE_URL . "student/dashboard.php");
+    }
     exit();
 }
 
@@ -41,7 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 // Redirect to original page or dashboard
                 $redirect = $_GET['redirect'] ?? '';
-                if (!empty($redirect) && strpos($redirect, '/') === 0) {
+                if (!empty($redirect) && strpos($redirect, '/') === 0 && strpos($redirect, '//') !== 0) {
                     header("Location: " . $redirect);
                 } elseif ($user['role'] === 'admin') {
                     header("Location: " . BASE_URL . "admin/admin_dashboard.php");
@@ -68,13 +72,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="<?php echo BASE_URL; ?>assets/css/style.css">
-    <link rel="icon" type="image/png" href="<?php echo BASE_URL; ?>assets/images/logo.png">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='40' height='40' rx='10' fill='%2316A34A'/%3E%3Cpath d='M10 13.5c0-.6.4-1 1-1 1.5 0 4.2.5 9 2.5v13.5c-4.8-2-7.5-2.5-9-2.5-.6 0-1-.4-1-1V13.5z' fill='%23fff' opacity='.9'/%3E%3Cpath d='M30 13.5c0-.6-.4-1-1-1-1.5 0-4.2.5-9 2.5v13.5c4.8-2 7.5-2.5 9-2.5.6 0 1-.4 1-1V13.5z' fill='%23fff' opacity='.7'/%3E%3C/svg%3E">
 </head>
 <body>
     <div class="auth-container">
         <div class="auth-card">
             <div class="auth-header">
-                <div class="brand-icon"><img src="<?php echo BASE_URL; ?>assets/images/logo.png" alt="Studify"></div>
+                <div class="brand-icon">
+                    <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <rect width="40" height="40" rx="10" fill="#16A34A"/>
+                        <path d="M20 12c-2.5 0-5 .8-5 .8v14.4s2.5-.8 5-.8 5 .8 5 .8V12.8s-2.5-.8-5-.8z" fill="#fff" opacity=".15"/>
+                        <path d="M10 13.5c0-.6.4-1 1-1 1.5 0 4.2.5 9 2.5v13.5c-4.8-2-7.5-2.5-9-2.5-.6 0-1-.4-1-1V13.5z" fill="#fff" opacity=".9"/>
+                        <path d="M30 13.5c0-.6-.4-1-1-1-1.5 0-4.2.5-9 2.5v13.5c4.8-2 7.5-2.5 9-2.5.6 0 1-.4 1-1V13.5z" fill="#fff" opacity=".7"/>
+                        <line x1="20" y1="14.5" x2="20" y2="28.5" stroke="#16A34A" stroke-width=".6" opacity=".5"/>
+                    </svg>
+                </div>
                 <h2>Welcome Back</h2>
                 <p>Sign in to your Studify account</p>
             </div>
@@ -90,11 +102,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     <i class="fas fa-check-circle"></i> Password reset successfully. You can now log in.
                 </div>
             <?php endif; ?>
-
-            <div class="demo-credentials">
-                <strong><i class="fas fa-info-circle"></i> Demo Credentials:</strong><br>
-                <strong>Email:</strong> student@studify.com &nbsp;|&nbsp; <strong>Password:</strong> password123
-            </div>
 
             <form method="POST" action="">
                 <?php echo csrfTokenField(); ?>

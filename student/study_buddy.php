@@ -36,51 +36,112 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WI
     }
     $action = $_POST['action'] ?? '';
 
-    // Send nudge
-    if ($action === 'send_nudge') {
+    // Update user activity on every AJAX request
+    updateUserActivity($user_id, $conn);
+
+    $presets = [
+        'wave' => "👋 Hey! Just checking in — how's studying going?",
+        'motivate' => "💪 You've got this! Keep pushing through!",
+        'reminder' => "⏰ Don't forget — you've got tasks due soon!",
+        'celebrate' => "🎉 Great progress today! Keep it up!",
+        'challenge' => "🔥 I just finished a task — your turn!"
+    ];
+
+    // ── Send chat message ──
+    if ($action === 'send_message') {
         $buddy = getAcceptedBuddy($user_id, $conn);
-        if (!$buddy) {
-            echo json_encode(['success' => false, 'message' => 'No active buddy']);
+        if (!$buddy) { echo json_encode(['success' => false, 'message' => 'No active buddy']); exit(); }
+        if (!checkChatRateLimit($user_id, $conn)) {
+            echo json_encode(['success' => false, 'message' => 'Slow down! You\'re sending messages too fast.']);
             exit();
         }
-        $message = sanitize($_POST['message'] ?? '');
-        $presets = [
-            'wave' => "👋 Hey! Just checking in — how's studying going?",
-            'motivate' => "💪 You've got this! Keep pushing through!",
-            'reminder' => "⏰ Don't forget — you've got tasks due soon!",
-            'celebrate' => "🎉 Great progress today! Keep it up!",
-            'challenge' => "🔥 I just finished a task — your turn!"
-        ];
-        if (isset($presets[$message])) {
-            $message = $presets[$message];
-        }
-        if (empty($message)) {
-            echo json_encode(['success' => false, 'message' => 'Message cannot be empty']);
-            exit();
-        }
-        // Rate limit: max 10 nudges per day to same person
-        $stmt = $conn->prepare("SELECT COUNT(*) as cnt FROM buddy_nudges 
-            WHERE sender_id = ? AND receiver_id = ? AND DATE(created_at) = CURDATE()");
-        $stmt->bind_param("ii", $user_id, $buddy['buddy_id']);
+        $message = trim($_POST['message'] ?? '');
+        $type = $_POST['type'] ?? 'text';
+        $reply_to = !empty($_POST['reply_to']) ? intval($_POST['reply_to']) : null;
+        if (!in_array($type, ['text', 'nudge', 'emoji'])) $type = 'text';
+        if ($type === 'nudge' && isset($presets[$message])) $message = $presets[$message];
+        if (empty($message)) { echo json_encode(['success' => false, 'message' => 'Message cannot be empty']); exit(); }
+        if (mb_strlen($message) > 1000) { echo json_encode(['success' => false, 'message' => 'Message too long (max 1000 chars)']); exit(); }
+
+        $msg_id = sendChatMessage($user_id, $buddy['buddy_id'], $message, $conn, $type, $reply_to);
+        $stmt = $conn->prepare("SELECT bm.*, u.name as sender_name, u.profile_photo as sender_photo,
+                rm.message as reply_message, rm.sender_id as reply_sender_id, ru.name as reply_sender_name
+                FROM buddy_messages bm
+                JOIN users u ON u.id = bm.sender_id
+                LEFT JOIN buddy_messages rm ON rm.id = bm.reply_to_id
+                LEFT JOIN users ru ON ru.id = rm.sender_id
+                WHERE bm.id = ?");
+        $stmt->bind_param("i", $msg_id);
         $stmt->execute();
-        $count = $stmt->get_result()->fetch_assoc()['cnt'];
-        if ($count >= 10) {
-            echo json_encode(['success' => false, 'message' => 'Daily nudge limit reached (10/day)']);
-            exit();
-        }
-        $stmt = $conn->prepare("INSERT INTO buddy_nudges (sender_id, receiver_id, message) VALUES (?, ?, ?)");
-        $stmt->bind_param("iis", $user_id, $buddy['buddy_id'], $message);
-        $stmt->execute();
-        echo json_encode(['success' => true, 'message' => 'Nudge sent!']);
+        $sent_msg = $stmt->get_result()->fetch_assoc();
+        echo json_encode(['success' => true, 'message' => $sent_msg]);
         exit();
     }
 
-    // Mark nudges as read
-    if ($action === 'mark_nudges_read') {
+    // ── Get messages (initial load / load more) ──
+    if ($action === 'get_messages') {
+        $buddy = getAcceptedBuddy($user_id, $conn);
+        if (!$buddy) { echo json_encode(['success' => false, 'message' => 'No active buddy']); exit(); }
+        $before_id = !empty($_POST['before_id']) ? intval($_POST['before_id']) : null;
+        $limit = min(max(intval($_POST['limit'] ?? 50), 10), 100);
+        $messages = getChatMessages($user_id, $buddy['buddy_id'], $conn, $limit, $before_id);
+        markChatMessagesRead($user_id, $buddy['buddy_id'], $conn);
+        echo json_encode(['success' => true, 'messages' => $messages]);
+        exit();
+    }
+
+    // ── Poll for new messages ──
+    if ($action === 'get_new_messages') {
+        $buddy = getAcceptedBuddy($user_id, $conn);
+        if (!$buddy) { echo json_encode(['success' => false, 'message' => 'No active buddy']); exit(); }
+        $after_id = intval($_POST['after_id'] ?? 0);
+        $messages = getNewChatMessages($user_id, $buddy['buddy_id'], $conn, $after_id);
+        markChatMessagesRead($user_id, $buddy['buddy_id'], $conn);
+        $buddy_typing = isBuddyTyping($buddy['buddy_id'], $conn);
+        $buddy_online = isUserOnline($buddy['buddy_id'], $conn);
+        $stmt = $conn->prepare("SELECT MAX(id) as last_read_id FROM buddy_messages WHERE sender_id = ? AND receiver_id = ? AND is_read = 1");
+        $stmt->bind_param("ii", $user_id, $buddy['buddy_id']);
+        $stmt->execute();
+        $last_read = $stmt->get_result()->fetch_assoc()['last_read_id'] ?? 0;
+        echo json_encode(['success' => true, 'messages' => $messages, 'buddy_typing' => $buddy_typing, 'buddy_online' => $buddy_online, 'last_read_id' => intval($last_read)]);
+        exit();
+    }
+
+    // ── Mark messages as read ──
+    if ($action === 'mark_read') {
+        $buddy = getAcceptedBuddy($user_id, $conn);
+        if ($buddy) markChatMessagesRead($user_id, $buddy['buddy_id'], $conn);
         $stmt = $conn->prepare("UPDATE buddy_nudges SET is_read = 1 WHERE receiver_id = ? AND is_read = 0");
         $stmt->bind_param("i", $user_id);
         $stmt->execute();
         echo json_encode(['success' => true]);
+        exit();
+    }
+
+    // ── Typing indicator ──
+    if ($action === 'typing') {
+        updateTypingStatus($user_id, $conn);
+        echo json_encode(['success' => true]);
+        exit();
+    }
+
+    // ── Heartbeat (online status) ──
+    if ($action === 'heartbeat') {
+        $buddy = getAcceptedBuddy($user_id, $conn);
+        $buddy_online = false; $buddy_typing = false;
+        if ($buddy) {
+            $buddy_online = isUserOnline($buddy['buddy_id'], $conn);
+            $buddy_typing = isBuddyTyping($buddy['buddy_id'], $conn);
+        }
+        echo json_encode(['success' => true, 'buddy_online' => $buddy_online, 'buddy_typing' => $buddy_typing]);
+        exit();
+    }
+
+    // ── Delete message ──
+    if ($action === 'delete_message') {
+        $message_id = intval($_POST['message_id'] ?? 0);
+        $deleted = deleteChatMessage($message_id, $user_id, $conn);
+        echo json_encode(['success' => $deleted, 'message' => $deleted ? 'Message deleted' : 'Cannot delete this message']);
         exit();
     }
 
@@ -109,31 +170,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if (!$partner) {
                 $error = 'No student found with that email address.';
             } else {
-                // Check existing relationships
-                $stmt = $conn->prepare("SELECT * FROM study_buddies 
-                    WHERE ((requester_id = ? AND partner_id = ?) OR (requester_id = ? AND partner_id = ?))
-                    AND status IN ('pending', 'accepted')");
-                $stmt->bind_param("iiii", $user_id, $partner['id'], $partner['id'], $user_id);
-                $stmt->execute();
-                $existing = $stmt->get_result()->fetch_assoc();
-                if ($existing) {
-                    $error = $existing['status'] === 'accepted' 
-                        ? 'You are already buddies with this person!' 
-                        : 'A request is already pending with this person.';
+                // Check if blocked
+                if (isBuddyBlocked($user_id, $partner['id'], $conn)) {
+                    $error = 'You cannot send a request to this user.';
                 } else {
-                    // Check if either already has an accepted buddy
-                    $my_buddy = getAcceptedBuddy($user_id, $conn);
-                    $their_buddy = getAcceptedBuddy($partner['id'], $conn);
-                    if ($my_buddy) {
-                        $error = 'You already have an active buddy. Unpair first to send a new request.';
-                    } elseif ($their_buddy) {
-                        $error = 'That student already has an active study buddy.';
+                    // Check existing relationships
+                    $stmt = $conn->prepare("SELECT * FROM study_buddies 
+                        WHERE ((requester_id = ? AND partner_id = ?) OR (requester_id = ? AND partner_id = ?))
+                        AND status IN ('pending', 'accepted')");
+                    $stmt->bind_param("iiii", $user_id, $partner['id'], $partner['id'], $user_id);
+                    $stmt->execute();
+                    $existing = $stmt->get_result()->fetch_assoc();
+                    if ($existing) {
+                        $error = $existing['status'] === 'accepted' 
+                            ? 'You are already buddies with this person!' 
+                            : 'A request is already pending with this person.';
                     } else {
-                        $code = generateBuddyCode();
-                        $stmt = $conn->prepare("INSERT INTO study_buddies (requester_id, partner_id, invite_code) VALUES (?, ?, ?)");
-                        $stmt->bind_param("iis", $user_id, $partner['id'], $code);
-                        $stmt->execute();
-                        $success = "Buddy request sent to {$partner['name']}!";
+                        // Check if either already has an accepted buddy
+                        $my_buddy = getAcceptedBuddy($user_id, $conn);
+                        $their_buddy = getAcceptedBuddy($partner['id'], $conn);
+                        if ($my_buddy) {
+                            $error = 'You already have an active buddy. Unpair first to send a new request.';
+                        } elseif ($their_buddy) {
+                            $error = 'That student already has an active study buddy.';
+                        } else {
+                            // Clean up old declined/unlinked records to allow re-pairing
+                            $stmt = $conn->prepare("DELETE FROM study_buddies 
+                                WHERE ((requester_id = ? AND partner_id = ?) OR (requester_id = ? AND partner_id = ?))
+                                AND status IN ('declined', 'unlinked')");
+                            $stmt->bind_param("iiii", $user_id, $partner['id'], $partner['id'], $user_id);
+                            $stmt->execute();
+
+                            $code = generateBuddyCode();
+                            $stmt = $conn->prepare("INSERT INTO study_buddies (requester_id, partner_id, invite_code) VALUES (?, ?, ?)");
+                            $stmt->bind_param("iis", $user_id, $partner['id'], $code);
+                            $stmt->execute();
+                            $success = "Buddy request sent to {$partner['name']}!";
+                        }
                     }
                 }
             }
@@ -149,21 +222,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->execute();
         $request = $stmt->get_result()->fetch_assoc();
         if ($request) {
-            // Check if user already has a buddy
-            $my_buddy = getAcceptedBuddy($user_id, $conn);
-            if ($my_buddy) {
-                $error = 'You already have an active buddy. Unpair first to accept a new request.';
+            // Check if blocked
+            if (isBuddyBlocked($user_id, $request['requester_id'], $conn)) {
+                $error = 'You cannot accept a request from this user.';
             } else {
-                $stmt = $conn->prepare("UPDATE study_buddies SET status = 'accepted' WHERE id = ?");
-                $stmt->bind_param("i", $request_id);
-                $stmt->execute();
-                // Decline any other pending requests for both users
-                $stmt = $conn->prepare("UPDATE study_buddies SET status = 'declined' 
-                    WHERE id != ? AND status = 'pending' 
-                    AND (requester_id IN (?, ?) OR partner_id IN (?, ?))");
-                $stmt->bind_param("iiiii", $request_id, $user_id, $request['requester_id'], $user_id, $request['requester_id']);
-                $stmt->execute();
-                $success = 'Buddy request accepted! You\'re now study partners.';
+                // Check if user already has a buddy
+                $my_buddy = getAcceptedBuddy($user_id, $conn);
+                if ($my_buddy) {
+                    $error = 'You already have an active buddy. Unpair first to accept a new request.';
+                } else {
+                    $stmt = $conn->prepare("UPDATE study_buddies SET status = 'accepted' WHERE id = ?");
+                    $stmt->bind_param("i", $request_id);
+                    $stmt->execute();
+                    // Decline any other pending requests for both users
+                    $stmt = $conn->prepare("UPDATE study_buddies SET status = 'declined' 
+                        WHERE id != ? AND status = 'pending' 
+                        AND (requester_id IN (?, ?) OR partner_id IN (?, ?))");
+                    $stmt->bind_param("iiiii", $request_id, $user_id, $request['requester_id'], $user_id, $request['requester_id']);
+                    $stmt->execute();
+                    $success = 'Buddy request accepted! You\'re now study partners.';
+                }
             }
         } else {
             $error = 'Request not found or already handled.';
@@ -183,11 +261,44 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     // Unpair from buddy
     if ($action === 'unpair') {
-        $stmt = $conn->prepare("DELETE FROM study_buddies WHERE (requester_id = ? OR partner_id = ?) AND status = 'accepted'");
+        $stmt = $conn->prepare("UPDATE study_buddies SET status = 'unlinked' WHERE (requester_id = ? OR partner_id = ?) AND status = 'accepted'");
         $stmt->bind_param("ii", $user_id, $user_id);
         $stmt->execute();
         if ($stmt->affected_rows > 0) {
             $success = 'You\'ve been unpaired from your study buddy.';
+        }
+    }
+
+    // Block buddy
+    if ($action === 'block_buddy') {
+        $block_id = intval($_POST['block_id'] ?? 0);
+        if ($block_id && $block_id !== $user_id) {
+            blockBuddy($user_id, $block_id, $conn);
+            $success = 'User has been blocked. They can no longer send you buddy requests.';
+        } else {
+            $error = 'Invalid user to block.';
+        }
+    }
+
+    // Unblock buddy
+    if ($action === 'unblock_buddy') {
+        $unblock_id = intval($_POST['unblock_id'] ?? 0);
+        if ($unblock_id) {
+            unblockBuddy($user_id, $unblock_id, $conn);
+            $success = 'User has been unblocked.';
+        }
+    }
+
+    // Report buddy
+    if ($action === 'report_buddy') {
+        $report_id = intval($_POST['report_id'] ?? 0);
+        $reason = sanitize($_POST['reason'] ?? '');
+        $details = sanitize($_POST['details'] ?? '');
+        if ($report_id && $report_id !== $user_id && !empty($reason)) {
+            reportBuddy($user_id, $report_id, $reason, $details, $conn);
+            $success = 'Report submitted. An admin will review it.';
+        } else {
+            $error = 'Please provide a valid reason for the report.';
         }
     }
 
@@ -206,14 +317,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $buddy_pair = getAcceptedBuddy($user_id, $conn);
 $pending_requests = getPendingBuddyRequests($user_id, $conn);
 $sent_request = getSentBuddyRequest($user_id, $conn);
-$nudges = getBuddyNudges($user_id, $conn, 15);
-$unread_nudges = getUnreadNudgeCount($user_id, $conn);
 $my_progress = getBuddyProgress($user_id, $conn);
+$blocked_users = getBlockedUsers($user_id, $conn);
 
-// If has buddy, get their progress
+// If has buddy, get their progress and update online status
 $buddy_progress = null;
 if ($buddy_pair) {
     $buddy_progress = getBuddyProgress($buddy_pair['buddy_id'], $conn);
+    updateUserActivity($user_id, $conn);
 }
 ?>
 <?php include '../includes/header.php'; ?>
@@ -226,189 +337,15 @@ if ($buddy_pair) {
     </div>
 
     <?php if ($success): ?>
-        <div class="alert alert-success alert-dismissible fade show"><i class="fas fa-check-circle"></i> <?php echo $success; ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+        <div class="alert alert-success alert-dismissible fade show"><i class="fas fa-check-circle"></i> <?php echo htmlspecialchars($success); ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
     <?php endif; ?>
     <?php if ($error): ?>
-        <div class="alert alert-danger alert-dismissible fade show"><i class="fas fa-exclamation-circle"></i> <?php echo $error; ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
+        <div class="alert alert-danger alert-dismissible fade show"><i class="fas fa-exclamation-circle"></i> <?php echo htmlspecialchars($error); ?><button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>
     <?php endif; ?>
 
     <?php if ($buddy_pair): ?>
-    <!-- ===== PAIRED STATE ===== -->
-    <div class="row g-4">
-        <!-- Buddy Card -->
-        <div class="col-lg-4">
-            <div class="card buddy-profile-card">
-                <div class="card-body text-center py-4">
-                    <div class="buddy-pair-badge"><i class="fas fa-link"></i> Paired</div>
-                    <?php 
-                        $b = $buddy_pair['buddy'];
-                        $b_initials = strtoupper(substr($b['name'], 0, 1));
-                    ?>
-                    <div class="buddy-avatar mx-auto mb-3">
-                        <?php if (!empty($b['profile_photo'])): ?>
-                            <img src="<?php echo BASE_URL . $b['profile_photo']; ?>" alt="<?php echo htmlspecialchars($b['name']); ?>">
-                        <?php else: ?>
-                            <span><?php echo $b_initials; ?></span>
-                        <?php endif; ?>
-                    </div>
-                    <h5 class="fw-700 mb-1"><?php echo htmlspecialchars($b['name']); ?></h5>
-                    <p class="text-muted mb-1" style="font-size: 12.5px;"><?php echo htmlspecialchars($b['course'] ?? 'Student'); ?></p>
-                    <?php if ($b['year_level']): ?>
-                        <span class="badge bg-secondary" style="font-size: 11px;">Year <?php echo $b['year_level']; ?></span>
-                    <?php endif; ?>
-                    <div class="mt-3">
-                        <small class="text-muted">Paired since <?php echo date('M d, Y', strtotime($buddy_pair['created_at'])); ?></small>
-                    </div>
-                    <hr>
-                    <form method="POST" onsubmit="return StudifyConfirm.form(event, 'Unpair Study Buddy', 'Are you sure you want to unpair? You can pair with someone else afterwards.', 'warning')">
-                        <input type="hidden" name="action" value="unpair">
-                        <?php echo csrfTokenField(); ?>
-                        <button type="submit" class="btn btn-outline-danger btn-sm w-100">
-                            <i class="fas fa-unlink"></i> Unpair
-                        </button>
-                    </form>
-                </div>
-            </div>
-
-            <!-- Send Nudge -->
-            <div class="card mt-4">
-                <div class="card-body">
-                    <h6 class="fw-700 mb-3"><i class="fas fa-paper-plane text-primary"></i> Send a Nudge</h6>
-                    <div class="nudge-presets">
-                        <button class="nudge-preset-btn" onclick="sendNudge('wave')">👋 Check In</button>
-                        <button class="nudge-preset-btn" onclick="sendNudge('motivate')">💪 Motivate</button>
-                        <button class="nudge-preset-btn" onclick="sendNudge('reminder')">⏰ Reminder</button>
-                        <button class="nudge-preset-btn" onclick="sendNudge('celebrate')">🎉 Celebrate</button>
-                        <button class="nudge-preset-btn" onclick="sendNudge('challenge')">🔥 Challenge</button>
-                    </div>
-                    <div class="input-group mt-3">
-                        <input type="text" class="form-control form-control-sm" id="customNudge" placeholder="Or type a custom message..." maxlength="200">
-                        <button class="btn btn-primary btn-sm" onclick="sendNudge(document.getElementById('customNudge').value)">
-                            <i class="fas fa-paper-plane"></i>
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Progress Comparison -->
-        <div class="col-lg-8">
-            <!-- Side by Side Stats -->
-            <div class="card mb-4">
-                <div class="card-body">
-                    <h6 class="fw-700 mb-3"><i class="fas fa-chart-bar text-info"></i> Accountability Dashboard</h6>
-                    <div class="buddy-compare">
-                        <!-- You -->
-                        <div class="buddy-compare-col">
-                            <div class="buddy-compare-header you-header">
-                                <i class="fas fa-user"></i> You
-                            </div>
-                            <div class="buddy-stat-grid">
-                                <div class="buddy-stat-item">
-                                    <div class="buddy-stat-value"><?php echo $my_progress['completion_pct']; ?>%</div>
-                                    <div class="buddy-stat-label">Completed</div>
-                                    <div class="buddy-progress-bar">
-                                        <div class="buddy-progress-fill you-fill" style="width: <?php echo $my_progress['completion_pct']; ?>%"></div>
-                                    </div>
-                                </div>
-                                <div class="buddy-stat-item">
-                                    <div class="buddy-stat-value"><?php echo $my_progress['streak']; ?> 🔥</div>
-                                    <div class="buddy-stat-label">Day Streak</div>
-                                </div>
-                                <div class="buddy-stat-item">
-                                    <div class="buddy-stat-value"><?php echo round($my_progress['week_minutes'] / 60, 1); ?>h</div>
-                                    <div class="buddy-stat-label">This Week</div>
-                                </div>
-                                <div class="buddy-stat-item">
-                                    <div class="buddy-stat-value"><?php echo $my_progress['week_sessions']; ?></div>
-                                    <div class="buddy-stat-label">Sessions</div>
-                                </div>
-                            </div>
-                        </div>
-                        <!-- VS -->
-                        <div class="buddy-compare-vs">VS</div>
-                        <!-- Buddy -->
-                        <div class="buddy-compare-col">
-                            <div class="buddy-compare-header buddy-header">
-                                <i class="fas fa-user-friends"></i> <?php echo htmlspecialchars(explode(' ', $b['name'])[0]); ?>
-                            </div>
-                            <div class="buddy-stat-grid">
-                                <div class="buddy-stat-item">
-                                    <div class="buddy-stat-value"><?php echo $buddy_progress['completion_pct']; ?>%</div>
-                                    <div class="buddy-stat-label">Completed</div>
-                                    <div class="buddy-progress-bar">
-                                        <div class="buddy-progress-fill buddy-fill" style="width: <?php echo $buddy_progress['completion_pct']; ?>%"></div>
-                                    </div>
-                                </div>
-                                <div class="buddy-stat-item">
-                                    <div class="buddy-stat-value"><?php echo $buddy_progress['streak']; ?> 🔥</div>
-                                    <div class="buddy-stat-label">Day Streak</div>
-                                </div>
-                                <div class="buddy-stat-item">
-                                    <div class="buddy-stat-value"><?php echo round($buddy_progress['week_minutes'] / 60, 1); ?>h</div>
-                                    <div class="buddy-stat-label">This Week</div>
-                                </div>
-                                <div class="buddy-stat-item">
-                                    <div class="buddy-stat-value"><?php echo $buddy_progress['week_sessions']; ?></div>
-                                    <div class="buddy-stat-label">Sessions</div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <?php if ($buddy_progress['due_soon'] > 0): ?>
-                        <div class="alert alert-warning mt-3 mb-0 py-2" style="font-size: 12.5px;">
-                            <i class="fas fa-exclamation-triangle"></i> 
-                            Your buddy has <strong><?php echo $buddy_progress['due_soon']; ?></strong> task<?php echo $buddy_progress['due_soon'] > 1 ? 's' : ''; ?> due within 3 days — send them a nudge!
-                        </div>
-                    <?php endif; ?>
-                </div>
-            </div>
-
-            <!-- Nudge Inbox -->
-            <div class="card">
-                <div class="card-body">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <h6 class="fw-700 mb-0">
-                            <i class="fas fa-bell text-warning"></i> Nudge Inbox
-                            <?php if ($unread_nudges > 0): ?>
-                                <span class="badge bg-danger" style="font-size: 10px;"><?php echo $unread_nudges; ?> new</span>
-                            <?php endif; ?>
-                        </h6>
-                        <?php if ($unread_nudges > 0): ?>
-                            <button class="btn btn-sm btn-outline-secondary" onclick="markNudgesRead()">
-                                <i class="fas fa-check-double"></i> Mark all read
-                            </button>
-                        <?php endif; ?>
-                    </div>
-                    <?php if (empty($nudges)): ?>
-                        <div class="text-center text-muted py-4">
-                            <i class="fas fa-inbox" style="font-size: 28px; opacity: 0.3;"></i>
-                            <p class="mt-2 mb-0" style="font-size: 13px;">No nudges yet. Send one to your buddy!</p>
-                        </div>
-                    <?php else: ?>
-                        <div class="nudge-list">
-                            <?php foreach ($nudges as $nudge): ?>
-                                <div class="nudge-item <?php echo !$nudge['is_read'] ? 'nudge-unread' : ''; ?>">
-                                    <div class="nudge-sender-avatar">
-                                        <?php if (!empty($nudge['sender_photo'])): ?>
-                                            <img src="<?php echo BASE_URL . $nudge['sender_photo']; ?>" alt="">
-                                        <?php else: ?>
-                                            <span><?php echo strtoupper(substr($nudge['sender_name'], 0, 1)); ?></span>
-                                        <?php endif; ?>
-                                    </div>
-                                    <div class="nudge-content">
-                                        <strong><?php echo htmlspecialchars($nudge['sender_name']); ?></strong>
-                                        <p class="mb-0"><?php echo htmlspecialchars($nudge['message']); ?></p>
-                                        <small class="text-muted"><?php echo date('M d, g:i A', strtotime($nudge['created_at'])); ?></small>
-                                    </div>
-                                </div>
-                            <?php endforeach; ?>
-                        </div>
-                    <?php endif; ?>
-                </div>
-            </div>
-        </div>
-    </div>
+    <!-- ===== PAIRED STATE: MESSENGER ===== -->
+    <?php include __DIR__ . '/buddy_messenger.php'; ?>
 
     <?php else: ?>
     <!-- ===== UNPAIRED STATE ===== -->
@@ -569,56 +506,40 @@ if ($buddy_pair) {
                     </small>
                 </div>
             </div>
+
+            <!-- Blocked Users -->
+            <?php if (!empty($blocked_users)): ?>
+            <div class="card mt-4">
+                <div class="card-body">
+                    <h6 class="fw-700 mb-3"><i class="fas fa-ban text-danger"></i> Blocked Users</h6>
+                    <?php foreach ($blocked_users as $bu): ?>
+                        <div class="d-flex align-items-center justify-content-between mb-2 p-2 rounded" style="background: var(--bg-secondary);">
+                            <div class="d-flex align-items-center gap-2">
+                                <div class="buddy-req-avatar" style="width:32px;height:32px;font-size:12px;">
+                                    <?php if (!empty($bu['blocked_photo'])): ?>
+                                        <img src="<?php echo BASE_URL . $bu['blocked_photo']; ?>" alt="" style="width:32px;height:32px;">
+                                    <?php else: ?>
+                                        <span><?php echo strtoupper(substr($bu['blocked_name'], 0, 1)); ?></span>
+                                    <?php endif; ?>
+                                </div>
+                                <div>
+                                    <strong style="font-size:13px;"><?php echo htmlspecialchars($bu['blocked_name']); ?></strong>
+                                    <div class="text-muted" style="font-size:11px;"><?php echo htmlspecialchars($bu['blocked_email']); ?></div>
+                                </div>
+                            </div>
+                            <form method="POST" class="d-inline" onsubmit="return StudifyConfirm.form(event, 'Unblock User', 'Are you sure you want to unblock this user? They will be able to send you buddy requests again.', 'warning')">
+                                <input type="hidden" name="action" value="unblock_buddy">
+                                <input type="hidden" name="unblock_id" value="<?php echo $bu['blocked_id']; ?>">
+                                <?php echo csrfTokenField(); ?>
+                                <button type="submit" class="btn btn-outline-secondary btn-sm" style="font-size:11px;"><i class="fas fa-unlock"></i> Unblock</button>
+                            </form>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+            </div>
+            <?php endif; ?>
         </div>
     </div>
     <?php endif; ?>
-
-<script>
-function sendNudge(message) {
-    if (!message || !message.trim()) {
-        showToast('Please enter a message or select a preset.', 'warning');
-        return;
-    }
-    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
-    fetch(window.location.href, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'X-Requested-With': 'XMLHttpRequest'
-        },
-        body: `action=send_nudge&message=${encodeURIComponent(message)}&csrf_token=${csrfToken}`
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            showToast(data.message, 'success');
-            document.getElementById('customNudge').value = '';
-        } else {
-            showToast(data.message, 'error');
-        }
-    })
-    .catch(() => showToast('Network error', 'error'));
-}
-
-function markNudgesRead() {
-    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
-    fetch(window.location.href, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'X-Requested-With': 'XMLHttpRequest'
-        },
-        body: `action=mark_nudges_read&csrf_token=${csrfToken}`
-    })
-    .then(r => r.json())
-    .then(data => {
-        if (data.success) {
-            document.querySelectorAll('.nudge-unread').forEach(el => el.classList.remove('nudge-unread'));
-            document.querySelectorAll('.badge.bg-danger').forEach(el => el.remove());
-            showToast('All nudges marked as read', 'success');
-        }
-    });
-}
-</script>
 
 <?php include '../includes/footer.php'; ?>

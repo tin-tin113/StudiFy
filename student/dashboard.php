@@ -23,21 +23,19 @@ if (!$user_id || !$user) {
     exit();
 }
 
-$total_tasks = getTotalTasksCount($user_id, $conn);
-$pending_tasks = getPendingTasksCount($user_id, $conn);
-$completed_tasks = getCompletedTasksCount($user_id, $conn);
-$completion_pct = getCompletionPercentage($user_id, $conn);
+$stats = getDashboardStats($user_id, $conn);
+$total_tasks = $stats['total_tasks'];
+$pending_tasks = $stats['pending_tasks'];
+$completed_tasks = $stats['completed_tasks'];
+$completion_pct = $stats['completion_pct'];
 $upcoming = getUpcomingTasks($user_id, $conn, 5);
 $semesters = getUserSemesters($user_id, $conn);
 $active_semester = getActiveSemester($user_id, $conn);
 
-$in_progress = $total_tasks - $pending_tasks - $completed_tasks;
-if ($in_progress < 0) $in_progress = 0;
+$in_progress = $stats['in_progress_tasks'];
 
 $priority_query = "SELECT t.priority, COUNT(*) as count FROM tasks t 
-                   JOIN subjects s ON t.subject_id = s.id 
-                   JOIN semesters sem ON s.semester_id = sem.id 
-                   WHERE sem.user_id = ? GROUP BY t.priority";
+                   WHERE t.user_id = ? GROUP BY t.priority";
 $stmt = $conn->prepare($priority_query);
 $stmt->bind_param("i", $user_id);
 $stmt->execute();
@@ -56,12 +54,12 @@ $stmt->execute();
 $week_study = $stmt->get_result()->fetch_assoc()['total_minutes'];
 
 // Weekly summary data
-$week_completed_q = $conn->prepare("SELECT COUNT(*) as c FROM tasks t JOIN subjects s ON t.subject_id = s.id JOIN semesters sem ON s.semester_id = sem.id WHERE sem.user_id = ? AND t.status = 'Completed' AND t.updated_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)");
+$week_completed_q = $conn->prepare("SELECT COUNT(*) as c FROM tasks t WHERE t.user_id = ? AND t.status = 'Completed' AND t.updated_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)");
 $week_completed_q->bind_param("i", $user_id);
 $week_completed_q->execute();
 $week_completed = $week_completed_q->get_result()->fetch_assoc()['c'];
 
-$week_added_q = $conn->prepare("SELECT COUNT(*) as c FROM tasks t JOIN subjects s ON t.subject_id = s.id JOIN semesters sem ON s.semester_id = sem.id WHERE sem.user_id = ? AND t.created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)");
+$week_added_q = $conn->prepare("SELECT COUNT(*) as c FROM tasks t WHERE t.user_id = ? AND t.created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)");
 $week_added_q->bind_param("i", $user_id);
 $week_added_q->execute();
 $week_added = $week_added_q->get_result()->fetch_assoc()['c'];
@@ -305,9 +303,6 @@ else $greeting = 'Good Evening';
                             </a>
                             <a href="calendar.php" class="btn btn-secondary">
                                 <i class="fas fa-calendar"></i> View Calendar
-                            </a>
-                            <a href="export.php" class="btn btn-secondary">
-                                <i class="fas fa-file-export"></i> Export Report
                             </a>
                         </div>
                     </div>

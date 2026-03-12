@@ -19,14 +19,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     requireCSRF();
     $delete_id = intval($_POST['user_id'] ?? 0);
     if ($delete_id > 0 && $delete_id !== $user_id) {
-        $stmt = $conn->prepare("DELETE FROM users WHERE id = ?");
-        $stmt->bind_param("i", $delete_id);
-        if ($stmt->execute()) {
-            $_SESSION['message'] = 'User deleted successfully!';
-            $_SESSION['message_type'] = 'success';
-        } else {
-            $_SESSION['message'] = 'Error deleting user.';
+        // Prevent deleting the last admin
+        $admin_check = $conn->query("SELECT COUNT(*) as cnt FROM users WHERE role = 'admin'");
+        $target_role = $conn->prepare("SELECT role FROM users WHERE id = ?");
+        $target_role->bind_param("i", $delete_id);
+        $target_role->execute();
+        $target_user = $target_role->get_result()->fetch_assoc();
+        if ($target_user && $target_user['role'] === 'admin' && $admin_check->fetch_assoc()['cnt'] <= 1) {
+            $_SESSION['message'] = 'Cannot delete the last admin account.';
             $_SESSION['message_type'] = 'error';
+        } else {
+            $stmt = $conn->prepare("DELETE FROM users WHERE id = ?");
+            $stmt->bind_param("i", $delete_id);
+            if ($stmt->execute()) {
+                $_SESSION['message'] = 'User deleted successfully!';
+                $_SESSION['message_type'] = 'success';
+            } else {
+                $_SESSION['message'] = 'Error deleting user.';
+                $_SESSION['message_type'] = 'error';
+            }
         }
         header("Location: manage_users.php");
         exit();
@@ -39,6 +50,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $target_id = intval($_POST['user_id'] ?? 0);
     $new_role = ($_POST['new_role'] === 'admin') ? 'admin' : 'student';
     if ($target_id > 0 && $target_id !== $user_id) {
+        // Prevent demoting the last admin
+        if ($new_role === 'student') {
+            $admin_count = $conn->query("SELECT COUNT(*) as cnt FROM users WHERE role = 'admin'");
+            if ($admin_count->fetch_assoc()['cnt'] <= 1) {
+                $_SESSION['message'] = 'Cannot demote the last admin account.';
+                $_SESSION['message_type'] = 'error';
+                header("Location: manage_users.php");
+                exit();
+            }
+        }
         $stmt = $conn->prepare("UPDATE users SET role = ? WHERE id = ?");
         $stmt->bind_param("si", $new_role, $target_id);
         if ($stmt->execute()) {
@@ -56,6 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 $users = getAllUsers($conn);
 
 // Count by role
+$total_count = count($users);
 $student_count = count(array_filter($users, fn($u) => $u['role'] === 'student'));
 $admin_count = count(array_filter($users, fn($u) => $u['role'] === 'admin'));
 
@@ -77,7 +99,7 @@ if ($role_filter) {
             <div class="card-body" style="padding: 12px 20px;">
                 <div class="d-flex flex-wrap gap-2 align-items-center">
                     <a href="manage_users.php" class="btn btn-sm <?php echo empty($role_filter) ? 'btn-primary' : 'btn-secondary'; ?>">
-                        All <span class="badge bg-light text-dark ms-1"><?php echo count(getAllUsers($conn)); ?></span>
+                        All <span class="badge bg-light text-dark ms-1"><?php echo $total_count; ?></span>
                     </a>
                     <a href="manage_users.php?role=student" class="btn btn-sm <?php echo $role_filter === 'student' ? 'btn-info' : 'btn-secondary'; ?>">
                         Students <span class="badge bg-light text-dark ms-1"><?php echo $student_count; ?></span>

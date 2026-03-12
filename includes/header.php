@@ -31,8 +31,10 @@ if (isset($_SESSION['user_id']) && function_exists('getPendingTasksCount') && $u
     $ann_count_q->bind_param("i", $_SESSION['user_id']);
     $ann_count_q->execute();
     $unread_ann_count = $ann_count_q->get_result()->fetch_assoc()['c'];
-    // Count unread buddy nudges
-    if (function_exists('getUnreadNudgeCount')) {
+    // Count unread buddy messages (chat + nudges)
+    if (function_exists('getUnreadBuddyMessageCount')) {
+        $unread_nudge_count = getUnreadBuddyMessageCount($_SESSION['user_id'], $conn);
+    } elseif (function_exists('getUnreadNudgeCount')) {
         $unread_nudge_count = getUnreadNudgeCount($_SESSION['user_id'], $conn);
     }
 }
@@ -56,8 +58,8 @@ $csrf_token = generateCSRFToken();
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.10/index.global.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="<?php echo BASE_URL; ?>assets/css/style.css">
-    <link rel="icon" type="image/png" href="<?php echo BASE_URL; ?>assets/images/logo.png">
+    <link rel="stylesheet" href="<?php echo BASE_URL; ?>assets/css/style.css?v=<?php echo filemtime(dirname(__DIR__) . '/assets/css/style.css'); ?>">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='40' height='40' rx='10' fill='%2316A34A'/%3E%3Cpath d='M10 13.5c0-.6.4-1 1-1 1.5 0 4.2.5 9 2.5v13.5c-4.8-2-7.5-2.5-9-2.5-.6 0-1-.4-1-1V13.5z' fill='%23fff' opacity='.9'/%3E%3Cpath d='M30 13.5c0-.6-.4-1-1-1-1.5 0-4.2.5-9 2.5v13.5c4.8-2 7.5-2.5 9-2.5.6 0 1-.4 1-1V13.5z' fill='%23fff' opacity='.7'/%3E%3C/svg%3E">
     <link rel="manifest" href="<?php echo BASE_URL; ?>manifest.json">
     <meta name="theme-color" content="#16A34A">
 </head>
@@ -69,7 +71,15 @@ $csrf_token = generateCSRFToken();
 <!-- SIDEBAR -->
 <aside class="sidebar" id="sidebar">
     <div class="sidebar-brand">
-        <div class="brand-icon"><img src="<?php echo BASE_URL; ?>assets/images/logo.png" alt="Studify"></div>
+        <div class="brand-icon">
+            <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect width="40" height="40" rx="10" fill="#16A34A"/>
+                <path d="M20 12c-2.5 0-5 .8-5 .8v14.4s2.5-.8 5-.8 5 .8 5 .8V12.8s-2.5-.8-5-.8z" fill="#fff" opacity=".15"/>
+                <path d="M10 13.5c0-.6.4-1 1-1 1.5 0 4.2.5 9 2.5v13.5c-4.8-2-7.5-2.5-9-2.5-.6 0-1-.4-1-1V13.5z" fill="#fff" opacity=".9"/>
+                <path d="M30 13.5c0-.6-.4-1-1-1-1.5 0-4.2.5-9 2.5v13.5c4.8-2 7.5-2.5 9-2.5.6 0 1-.4 1-1V13.5z" fill="#fff" opacity=".7"/>
+                <line x1="20" y1="14.5" x2="20" y2="28.5" stroke="#16A34A" stroke-width=".6" opacity=".5"/>
+            </svg>
+        </div>
         <div class="brand-text">Studi<span>fy</span></div>
         <button class="sidebar-collapse-btn" id="sidebarCollapseBtn" title="Toggle Sidebar">
             <i class="fas fa-chevron-left"></i>
@@ -144,13 +154,12 @@ $csrf_token = generateCSRFToken();
                class="nav-link-sidebar <?php echo $current_page === 'study_analytics.php' ? 'active' : ''; ?>">
                 <i class="fas fa-chart-area"></i> <span class="sidebar-link-text">Analytics</span>
             </a>
-            <a href="<?php echo BASE_URL; ?>student/export.php" title="Export"
-               class="nav-link-sidebar <?php echo $current_page === 'export.php' ? 'active' : ''; ?>">
-                <i class="fas fa-file-export"></i> <span class="sidebar-link-text">Export</span>
-            </a>
             <a href="<?php echo BASE_URL; ?>student/study_buddy.php" title="Study Buddy"
                class="nav-link-sidebar <?php echo $current_page === 'study_buddy.php' ? 'active' : ''; ?>">
                 <i class="fas fa-user-friends"></i> <span class="sidebar-link-text">Study Buddy</span>
+                <?php if ($unread_nudge_count > 0): ?>
+                    <span class="badge bg-danger ms-auto" style="font-size: 10px;"><?php echo $unread_nudge_count; ?></span>
+                <?php endif; ?>
             </a>
         <?php endif; ?>
 
@@ -376,4 +385,21 @@ $csrf_token = generateCSRFToken();
                 <?php endif; ?>
             </div>
         </div>
+        <script>
+        function dismissOnboarding() {
+            var card = document.getElementById('onboardingCard');
+            if (card) {
+                card.style.transition = 'opacity 0.3s ease, transform 0.3s ease';
+                card.style.opacity = '0';
+                card.style.transform = 'translateY(-10px)';
+                setTimeout(function() { card.remove(); }, 300);
+            }
+            var csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+            fetch('<?php echo BASE_URL; ?>student/dismiss_onboarding.php', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: 'csrf_token=' + csrfToken
+            });
+        }
+        </script>
         <?php endif; ?>

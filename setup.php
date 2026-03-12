@@ -1,6 +1,17 @@
 <?php
 // Setup Script for Studify
 // Run this file once to create the database and tables
+// WARNING: Delete this file after installation for security!
+
+// Require explicit confirmation to prevent accidental/unauthorized runs
+if (!isset($_GET['confirm']) || $_GET['confirm'] !== 'yes') {
+    die("<!DOCTYPE html><html><head><title>Studify Setup</title></head><body style='font-family:sans-serif;padding:40px;max-width:600px;margin:auto;'>
+    <h1>&#9888;&#65039; Studify Database Setup</h1>
+    <p>This script will create or update the database schema. Only run this during initial installation.</p>
+    <p><a href='setup.php?confirm=yes' style='display:inline-block;background:#16A34A;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:600;'>&#9989; Run Setup</a></p>
+    <p style='color:#999;font-size:13px;margin-top:20px;'>&#9888;&#65039; Delete this file after installation for security.</p>
+    </body></html>");
+}
 
 $db_host = 'localhost';
 $db_user = 'root';
@@ -39,7 +50,7 @@ $sql = "CREATE TABLE IF NOT EXISTS users (
     role ENUM('student', 'admin') DEFAULT 'student',
     course VARCHAR(255),
     year_level INT,
-    profile_photo VARCHAR(255) DEFAULT NULL,
+    profile_photo VARCHAR(500) DEFAULT NULL,
     onboarding_completed TINYINT(1) DEFAULT 0,
     login_attempts INT DEFAULT 0,
     locked_until DATETIME DEFAULT NULL,
@@ -93,17 +104,21 @@ if ($conn->query($sql)) {
 $sql = "CREATE TABLE IF NOT EXISTS tasks (
     id INT AUTO_INCREMENT PRIMARY KEY,
     subject_id INT NOT NULL,
-    parent_id INT DEFAULT NULL,
+    parent_id INT DEFAULT NULL COMMENT 'For subtasks - references parent task',
     title VARCHAR(255) NOT NULL,
     description TEXT,
     deadline DATETIME NOT NULL,
     priority ENUM('Low', 'Medium', 'High') DEFAULT 'Medium',
     type ENUM('Assignment', 'Quiz', 'Project', 'Exam', 'Report', 'Other') DEFAULT 'Assignment',
     status ENUM('Pending', 'In Progress', 'Completed') DEFAULT 'Pending',
-    position INT DEFAULT 0,
+    is_recurring TINYINT(1) DEFAULT 0,
+    recurrence_type ENUM('Daily', 'Weekly', 'Monthly') DEFAULT NULL,
+    recurrence_end DATE DEFAULT NULL,
+    position INT DEFAULT 0 COMMENT 'For Kanban ordering',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE,
+    FOREIGN KEY (parent_id) REFERENCES tasks(id) ON DELETE CASCADE,
     INDEX idx_subject_id (subject_id),
     INDEX idx_parent_id (parent_id),
     INDEX idx_deadline (deadline),
@@ -119,10 +134,14 @@ if ($conn->query($sql)) {
 $sql = "CREATE TABLE IF NOT EXISTS study_sessions (
     id INT AUTO_INCREMENT PRIMARY KEY,
     user_id INT NOT NULL,
+    task_id INT DEFAULT NULL COMMENT 'Optional link to specific task',
+    subject_id INT DEFAULT NULL COMMENT 'Optional link to specific subject',
     duration INT NOT NULL COMMENT 'Duration in minutes',
     session_type ENUM('Focus', 'Break') DEFAULT 'Focus',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL,
+    FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE SET NULL,
     INDEX idx_user_id (user_id),
     INDEX idx_created_at (created_at)
 )";
@@ -224,21 +243,10 @@ if ($check->num_rows === 0) {
 echo "<br><hr>";
 echo "<h2>Applying Schema Upgrades...</h2>";
 
-// Add new columns to users table if not exist
-$upgrades = [
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_photo VARCHAR(255) DEFAULT NULL AFTER year_level",
-    "ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_completed TINYINT(1) DEFAULT 0 AFTER profile_photo",
-];
-
-// Some MySQL versions don't support IF NOT EXISTS for ALTER TABLE ADD COLUMN
-foreach ($upgrades as $sql) {
-    $conn->query($sql); // Silently ignore if column already exists
-}
-
 // Check and add columns manually for compatibility
 $result = $conn->query("SHOW COLUMNS FROM users LIKE 'profile_photo'");
 if ($result->num_rows === 0) {
-    $conn->query("ALTER TABLE users ADD COLUMN profile_photo VARCHAR(255) DEFAULT NULL AFTER year_level");
+    $conn->query("ALTER TABLE users ADD COLUMN profile_photo VARCHAR(500) DEFAULT NULL AFTER year_level");
     echo "<p style='color:green;'>✅ Added 'profile_photo' column to users.</p>";
 }
 
@@ -291,29 +299,34 @@ $sql = "CREATE TABLE IF NOT EXISTS notes (
     subject_id INT DEFAULT NULL,
     user_id INT NOT NULL,
     title VARCHAR(255) NOT NULL,
-    content TEXT,
+    content LONGTEXT,
+    content_type ENUM('plain', 'markdown') DEFAULT 'markdown',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE SET NULL,
+    INDEX idx_subject_id (subject_id),
     INDEX idx_user_id (user_id)
 )";
 $conn->query($sql);
-echo "<p style='color:green;'>✅ Table 'notes' created/verified.</p>";
+echo "<p style='color:green;'>&#9989; Table 'notes' created/verified.</p>";
 
 // Create Announcements Table
 $sql = "CREATE TABLE IF NOT EXISTS announcements (
     id INT AUTO_INCREMENT PRIMARY KEY,
+    admin_id INT NOT NULL,
     title VARCHAR(255) NOT NULL,
     content TEXT NOT NULL,
-    priority ENUM('Normal','Important','Urgent') DEFAULT 'Normal',
-    created_by INT,
+    priority ENUM('Low', 'Normal', 'Important', 'Urgent') DEFAULT 'Normal',
     expires_at DATE DEFAULT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_expires (expires_at)
+    FOREIGN KEY (admin_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_admin_id (admin_id),
+    INDEX idx_expires_at (expires_at)
 )";
 $conn->query($sql);
-echo "<p style='color:green;'>✅ Table 'announcements' created/verified.</p>";
+echo "<p style='color:green;'>&#9989; Table 'announcements' created/verified.</p>";
 
 // Create Announcement Reads Table
 $sql = "CREATE TABLE IF NOT EXISTS announcement_reads (
@@ -331,15 +344,16 @@ echo "<p style='color:green;'>✅ Table 'announcement_reads' created/verified.</
 // Create Password Resets Table
 $sql = "CREATE TABLE IF NOT EXISTS password_resets (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
+    email VARCHAR(255) NOT NULL,
     token VARCHAR(255) NOT NULL,
     expires_at DATETIME NOT NULL,
+    used TINYINT(1) DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    INDEX idx_token (token)
+    INDEX idx_token (token),
+    INDEX idx_email (email)
 )";
 $conn->query($sql);
-echo "<p style='color:green;'>✅ Table 'password_resets' created/verified.</p>";
+echo "<p style='color:green;'>&#9989; Table 'password_resets' created/verified.</p>";
 
 // Create Login Attempts Table
 $sql = "CREATE TABLE IF NOT EXISTS login_attempts (
@@ -366,7 +380,139 @@ $sql = "CREATE TABLE IF NOT EXISTS activity_log (
     INDEX idx_created_at (created_at)
 )";
 $conn->query($sql);
-echo "<p style='color:green;'>✅ Table 'activity_log' created/verified.</p>";
+echo "<p style='color:green;'>&#9989; Table 'activity_log' created/verified.</p>";
+
+// Create File Attachments Table
+$sql = "CREATE TABLE IF NOT EXISTS attachments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    task_id INT DEFAULT NULL,
+    note_id INT DEFAULT NULL,
+    file_name VARCHAR(255) NOT NULL,
+    file_path VARCHAR(500) NOT NULL,
+    file_size INT NOT NULL COMMENT 'Size in bytes',
+    file_type VARCHAR(100) NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
+    FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE,
+    INDEX idx_task_id (task_id),
+    INDEX idx_note_id (note_id),
+    INDEX idx_user_id (user_id)
+)";
+$conn->query($sql);
+echo "<p style='color:green;'>&#9989; Table 'attachments' created/verified.</p>";
+
+// Create Study Buddies Table
+$sql = "CREATE TABLE IF NOT EXISTS study_buddies (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    requester_id INT NOT NULL,
+    partner_id INT NOT NULL,
+    status ENUM('pending', 'accepted', 'declined', 'unlinked') DEFAULT 'pending',
+    invite_code VARCHAR(32) DEFAULT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (requester_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (partner_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_pair (requester_id, partner_id),
+    INDEX idx_requester (requester_id),
+    INDEX idx_partner (partner_id),
+    INDEX idx_invite_code (invite_code),
+    INDEX idx_status (status)
+)";
+$conn->query($sql);
+echo "<p style='color:green;'>&#9989; Table 'study_buddies' created/verified.</p>";
+
+// Create Buddy Nudges Table
+$sql = "CREATE TABLE IF NOT EXISTS buddy_nudges (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    sender_id INT NOT NULL,
+    receiver_id INT NOT NULL,
+    message VARCHAR(500) NOT NULL,
+    is_read TINYINT(1) DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_receiver (receiver_id),
+    INDEX idx_is_read (is_read)
+)";
+$conn->query($sql);
+echo "<p style='color:green;'>&#9989; Table 'buddy_nudges' created/verified.</p>";
+
+// Create Buddy Messages Table (Instant Messaging)
+$sql = "CREATE TABLE IF NOT EXISTS buddy_messages (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    sender_id INT NOT NULL,
+    receiver_id INT NOT NULL,
+    message TEXT NOT NULL,
+    message_type ENUM('text','nudge','emoji','system') DEFAULT 'text',
+    reply_to_id INT DEFAULT NULL,
+    is_read TINYINT(1) DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (receiver_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_conversation (sender_id, receiver_id, created_at),
+    INDEX idx_receiver_unread (receiver_id, is_read),
+    INDEX idx_created_at (created_at)
+)";
+$conn->query($sql);
+echo "<p style='color:green;'>&#9989; Table 'buddy_messages' created/verified.</p>";
+
+// Create Buddy Typing Status Table
+$sql = "CREATE TABLE IF NOT EXISTS buddy_typing_status (
+    user_id INT PRIMARY KEY,
+    typing_until TIMESTAMP NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+)";
+$conn->query($sql);
+echo "<p style='color:green;'>&#9989; Table 'buddy_typing_status' created/verified.</p>";
+
+// Create Buddy Blocks Table
+$sql = "CREATE TABLE IF NOT EXISTS buddy_blocks (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    blocker_id INT NOT NULL,
+    blocked_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (blocker_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (blocked_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_block (blocker_id, blocked_id),
+    INDEX idx_blocker (blocker_id),
+    INDEX idx_blocked (blocked_id)
+)";
+$conn->query($sql);
+echo "<p style='color:green;'>&#9989; Table 'buddy_blocks' created/verified.</p>";
+
+// Create Buddy Reports Table
+$sql = "CREATE TABLE IF NOT EXISTS buddy_reports (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    reporter_id INT NOT NULL,
+    reported_id INT NOT NULL,
+    reason ENUM('harassment', 'spam', 'inappropriate', 'impersonation', 'other') NOT NULL,
+    details TEXT,
+    status ENUM('pending', 'reviewed', 'resolved', 'dismissed') DEFAULT 'pending',
+    reviewed_by INT DEFAULT NULL,
+    reviewed_at TIMESTAMP NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (reporter_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (reported_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (reviewed_by) REFERENCES users(id) ON DELETE SET NULL,
+    INDEX idx_reporter (reporter_id),
+    INDEX idx_reported (reported_id),
+    INDEX idx_status (status)
+)";
+$conn->query($sql);
+echo "<p style='color:green;'>&#9989; Table 'buddy_reports' created/verified.</p>";
+
+// Add last_active column to users if not exists
+$result = $conn->query("SHOW COLUMNS FROM users LIKE 'last_active'");
+if ($result->num_rows === 0) {
+    $conn->query("ALTER TABLE users ADD COLUMN last_active TIMESTAMP NULL DEFAULT NULL AFTER locked_until");
+    echo "<p style='color:green;'>&#9989; Added 'last_active' column to users.</p>";
+}
+
+// Upgrade study_buddies status enum to include 'unlinked'
+$conn->query("ALTER TABLE study_buddies MODIFY COLUMN status ENUM('pending', 'accepted', 'declined', 'unlinked') DEFAULT 'pending'");
+echo "<p style='color:green;'>&#9989; Updated study_buddies status enum.</p>";
 
 // Create uploads directory
 $upload_dirs = [

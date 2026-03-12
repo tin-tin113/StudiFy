@@ -54,11 +54,11 @@ function getSubjectTasks($subject_id, $conn) {
 
 // Function to get all tasks for user (across all subjects)
 function getUserTasks($user_id, $conn, $limit = 0, $offset = 0) {
-    $query = "SELECT t.*, s.name as subject_name, se.name as semester_name 
+    $query = "SELECT t.*, COALESCE(s.name, 'General') as subject_name, COALESCE(se.name, '') as semester_name 
               FROM tasks t
-              JOIN subjects s ON t.subject_id = s.id
-              JOIN semesters se ON s.semester_id = se.id
-              WHERE se.user_id = ? AND t.parent_id IS NULL
+              LEFT JOIN subjects s ON t.subject_id = s.id
+              LEFT JOIN semesters se ON s.semester_id = se.id
+              WHERE t.user_id = ? AND t.parent_id IS NULL
               ORDER BY t.deadline ASC";
     if ($limit > 0) {
         $query .= " LIMIT ? OFFSET ?";
@@ -76,9 +76,7 @@ function getUserTasks($user_id, $conn, $limit = 0, $offset = 0) {
 // Function to get pending tasks count
 function getPendingTasksCount($user_id, $conn) {
     $query = "SELECT COUNT(*) as count FROM tasks t
-              JOIN subjects s ON t.subject_id = s.id
-              JOIN semesters se ON s.semester_id = se.id
-              WHERE se.user_id = ? AND t.status = 'Pending' AND t.parent_id IS NULL";
+              WHERE t.user_id = ? AND t.status = 'Pending' AND t.parent_id IS NULL";
     $stmt = $conn->prepare($query);
     $stmt->bind_param("i", $user_id);
     $stmt->execute();
@@ -90,9 +88,7 @@ function getPendingTasksCount($user_id, $conn) {
 // Function to get completed tasks count
 function getCompletedTasksCount($user_id, $conn) {
     $query = "SELECT COUNT(*) as count FROM tasks t
-              JOIN subjects s ON t.subject_id = s.id
-              JOIN semesters se ON s.semester_id = se.id
-              WHERE se.user_id = ? AND t.status = 'Completed' AND t.parent_id IS NULL";
+              WHERE t.user_id = ? AND t.status = 'Completed' AND t.parent_id IS NULL";
     $stmt = $conn->prepare($query);
     $stmt->bind_param("i", $user_id);
     $stmt->execute();
@@ -104,9 +100,7 @@ function getCompletedTasksCount($user_id, $conn) {
 // Function to get total tasks count
 function getTotalTasksCount($user_id, $conn) {
     $query = "SELECT COUNT(*) as count FROM tasks t
-              JOIN subjects s ON t.subject_id = s.id
-              JOIN semesters se ON s.semester_id = se.id
-              WHERE se.user_id = ? AND t.parent_id IS NULL";
+              WHERE t.user_id = ? AND t.parent_id IS NULL";
     $stmt = $conn->prepare($query);
     $stmt->bind_param("i", $user_id);
     $stmt->execute();
@@ -117,11 +111,10 @@ function getTotalTasksCount($user_id, $conn) {
 
 // Function to get upcoming tasks (next N days)
 function getUpcomingTasks($user_id, $conn, $days = 7) {
-    $query = "SELECT t.*, s.name as subject_name
+    $query = "SELECT t.*, COALESCE(s.name, 'General') as subject_name
               FROM tasks t
-              JOIN subjects s ON t.subject_id = s.id
-              JOIN semesters se ON s.semester_id = se.id
-              WHERE se.user_id = ? 
+              LEFT JOIN subjects s ON t.subject_id = s.id
+              WHERE t.user_id = ? 
               AND t.status != 'Completed'
               AND t.parent_id IS NULL
               AND DATE(t.deadline) BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL ? DAY)
@@ -150,9 +143,7 @@ function getDashboardStats($user_id, $conn) {
                 COUNT(CASE WHEN t.status = 'Completed' AND t.parent_id IS NULL THEN 1 END) as completed_tasks,
                 COUNT(CASE WHEN t.status = 'In Progress' AND t.parent_id IS NULL THEN 1 END) as in_progress_tasks
               FROM tasks t
-              JOIN subjects s ON t.subject_id = s.id
-              JOIN semesters se ON s.semester_id = se.id
-              WHERE se.user_id = ?";
+              WHERE t.user_id = ?";
     $stmt = $conn->prepare($query);
     $stmt->bind_param("i", $user_id);
     $stmt->execute();
@@ -441,14 +432,14 @@ function handleProfilePhotoUpload($file, $user_id, $conn) {
         return ['success' => false, 'message' => 'Photo must be under 5MB'];
     }
     
-    $photo_dir = UPLOAD_DIR . 'photos/';
+    $photo_dir = UPLOAD_DIR . 'avatars/';
     if (!is_dir($photo_dir)) mkdir($photo_dir, 0755, true);
     
-    $filename = 'profile_' . $user_id . '_' . time() . '.' . $ext;
+    $filename = 'avatar_' . $user_id . '_' . time() . '.' . $ext;
     $filepath = $photo_dir . $filename;
     
     if (move_uploaded_file($file['tmp_name'], $filepath)) {
-        $relative = 'uploads/photos/' . $filename;
+        $relative = 'uploads/avatars/' . $filename;
         $stmt = $conn->prepare("UPDATE users SET profile_photo = ? WHERE id = ?");
         $stmt->bind_param("si", $relative, $user_id);
         $stmt->execute();
@@ -500,11 +491,10 @@ function globalSearch($user_id, $conn, $query, $limit = 20) {
     $search_term = '%' . $query . '%';
     
     // Search tasks
-    $stmt = $conn->prepare("SELECT t.id, t.title, t.status, t.priority, s.name as subject_name 
+    $stmt = $conn->prepare("SELECT t.id, t.title, t.status, t.priority, COALESCE(s.name, 'General') as subject_name 
         FROM tasks t 
-        JOIN subjects s ON t.subject_id = s.id 
-        JOIN semesters sem ON s.semester_id = sem.id 
-        WHERE sem.user_id = ? AND (t.title LIKE ? OR t.description LIKE ?) 
+        LEFT JOIN subjects s ON t.subject_id = s.id 
+        WHERE t.user_id = ? AND (t.title LIKE ? OR t.description LIKE ?) 
         ORDER BY t.deadline ASC LIMIT ?");
     $stmt->bind_param("issi", $user_id, $search_term, $search_term, $limit);
     $stmt->execute();
@@ -563,6 +553,70 @@ function getAcceptedBuddy($user_id, $conn) {
     return $result;
 }
 
+// Check if a user is blocked by or has blocked another user
+function isBuddyBlocked($user_id, $other_id, $conn) {
+    $stmt = $conn->prepare("SELECT id FROM buddy_blocks 
+        WHERE (blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)");
+    $stmt->bind_param("iiii", $user_id, $other_id, $other_id, $user_id);
+    $stmt->execute();
+    return $stmt->get_result()->num_rows > 0;
+}
+
+// Block a buddy
+function blockBuddy($blocker_id, $blocked_id, $conn) {
+    // First unpair if currently paired
+    $conn->query("UPDATE study_buddies SET status = 'unlinked' 
+        WHERE ((requester_id = $blocker_id AND partner_id = $blocked_id) 
+            OR (requester_id = $blocked_id AND partner_id = $blocker_id)) 
+        AND status = 'accepted'");
+    // Decline any pending requests between them
+    $conn->query("UPDATE study_buddies SET status = 'declined' 
+        WHERE ((requester_id = $blocker_id AND partner_id = $blocked_id) 
+            OR (requester_id = $blocked_id AND partner_id = $blocker_id)) 
+        AND status = 'pending'");
+    // Insert block record
+    $stmt = $conn->prepare("INSERT IGNORE INTO buddy_blocks (blocker_id, blocked_id) VALUES (?, ?)");
+    $stmt->bind_param("ii", $blocker_id, $blocked_id);
+    return $stmt->execute();
+}
+
+// Unblock a buddy
+function unblockBuddy($blocker_id, $blocked_id, $conn) {
+    $stmt = $conn->prepare("DELETE FROM buddy_blocks WHERE blocker_id = ? AND blocked_id = ?");
+    $stmt->bind_param("ii", $blocker_id, $blocked_id);
+    $stmt->execute();
+    return $stmt->affected_rows > 0;
+}
+
+// Report a buddy
+function reportBuddy($reporter_id, $reported_id, $reason, $details, $conn) {
+    $stmt = $conn->prepare("INSERT INTO buddy_reports (reporter_id, reported_id, reason, details) VALUES (?, ?, ?, ?)");
+    $stmt->bind_param("iiss", $reporter_id, $reported_id, $reason, $details);
+    return $stmt->execute();
+}
+
+// Get users blocked by this user
+function getBlockedUsers($user_id, $conn) {
+    $stmt = $conn->prepare("SELECT bb.*, u.name as blocked_name, u.email as blocked_email, u.profile_photo as blocked_photo
+        FROM buddy_blocks bb
+        JOIN users u ON u.id = bb.blocked_id
+        WHERE bb.blocker_id = ?
+        ORDER BY bb.created_at DESC");
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+}
+
+// Chat rate limiting: max messages per minute
+function checkChatRateLimit($user_id, $conn, $max_per_minute = 15) {
+    $stmt = $conn->prepare("SELECT COUNT(*) as cnt FROM buddy_messages 
+        WHERE sender_id = ? AND created_at > DATE_SUB(NOW(), INTERVAL 1 MINUTE)");
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    $count = $stmt->get_result()->fetch_assoc()['cnt'];
+    return $count < $max_per_minute;
+}
+
 // Get pending buddy requests received
 function getPendingBuddyRequests($user_id, $conn) {
     $stmt = $conn->prepare("SELECT sb.*, u.name as requester_name, u.email as requester_email, 
@@ -607,17 +661,17 @@ function getBuddyProgress($buddy_id, $conn) {
     $stmt->execute();
     $study = $stmt->get_result()->fetch_assoc();
 
-    // Streak: consecutive days with completed tasks
-    $stmt = $conn->prepare("SELECT DATE(t.updated_at) as d FROM tasks t
-        JOIN subjects s ON t.subject_id = s.id
-        JOIN semesters sem ON s.semester_id = sem.id
-        WHERE sem.user_id = ? AND t.status = 'Completed'
-        GROUP BY DATE(t.updated_at) ORDER BY d DESC");
+    // Streak: consecutive days with completed tasks (optimized – only check last 365 days)
+    $stmt = $conn->prepare("SELECT DISTINCT DATE(t.updated_at) as d FROM tasks t
+        WHERE t.user_id = ? AND t.status = 'Completed'
+        AND t.updated_at >= DATE_SUB(CURDATE(), INTERVAL 365 DAY)
+        ORDER BY d DESC
+        LIMIT 365");
     $stmt->bind_param("i", $buddy_id);
     $stmt->execute();
     $days = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $streak = 0;
-    $check = new DateTime();
+    $check = new DateTime('today');
     foreach ($days as $row) {
         $day = new DateTime($row['d']);
         if ($day->format('Y-m-d') === $check->format('Y-m-d')) {
@@ -630,9 +684,7 @@ function getBuddyProgress($buddy_id, $conn) {
 
     // Pending tasks due soon (count only, no details)
     $stmt = $conn->prepare("SELECT COUNT(*) as due_soon FROM tasks t
-        JOIN subjects s ON t.subject_id = s.id
-        JOIN semesters sem ON s.semester_id = sem.id
-        WHERE sem.user_id = ? AND t.status != 'Completed' AND t.deadline <= DATE_ADD(NOW(), INTERVAL 3 DAY)");
+        WHERE t.user_id = ? AND t.status != 'Completed' AND t.deadline <= DATE_ADD(NOW(), INTERVAL 3 DAY)");
     $stmt->bind_param("i", $buddy_id);
     $stmt->execute();
     $due = $stmt->get_result()->fetch_assoc();
@@ -666,6 +718,125 @@ function getBuddyNudges($user_id, $conn, $limit = 10) {
     $stmt->bind_param("ii", $user_id, $limit);
     $stmt->execute();
     return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+}
+
+// ============================================
+// BUDDY CHAT FUNCTIONS (Instant Messaging)
+// ============================================
+
+// Get chat messages between two users (paginated, chronological)
+function getChatMessages($user_id, $buddy_id, $conn, $limit = 50, $before_id = null) {
+    $sql = "SELECT bm.*, u.name as sender_name, u.profile_photo as sender_photo,
+            rm.message as reply_message, rm.sender_id as reply_sender_id, ru.name as reply_sender_name
+            FROM buddy_messages bm
+            JOIN users u ON u.id = bm.sender_id
+            LEFT JOIN buddy_messages rm ON rm.id = bm.reply_to_id
+            LEFT JOIN users ru ON ru.id = rm.sender_id
+            WHERE ((bm.sender_id = ? AND bm.receiver_id = ?) OR (bm.sender_id = ? AND bm.receiver_id = ?))";
+    if ($before_id) {
+        $sql .= " AND bm.id < ? ORDER BY bm.created_at DESC LIMIT ?";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("iiiiii", $user_id, $buddy_id, $buddy_id, $user_id, $before_id, $limit);
+    } else {
+        $sql .= " ORDER BY bm.created_at DESC LIMIT ?";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("iiiii", $user_id, $buddy_id, $buddy_id, $user_id, $limit);
+    }
+    $stmt->execute();
+    $messages = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    return array_reverse($messages);
+}
+
+// Get new chat messages since a given message ID (for polling)
+function getNewChatMessages($user_id, $buddy_id, $conn, $after_id) {
+    $stmt = $conn->prepare("SELECT bm.*, u.name as sender_name, u.profile_photo as sender_photo,
+            rm.message as reply_message, rm.sender_id as reply_sender_id, ru.name as reply_sender_name
+            FROM buddy_messages bm
+            JOIN users u ON u.id = bm.sender_id
+            LEFT JOIN buddy_messages rm ON rm.id = bm.reply_to_id
+            LEFT JOIN users ru ON ru.id = rm.sender_id
+            WHERE ((bm.sender_id = ? AND bm.receiver_id = ?) OR (bm.sender_id = ? AND bm.receiver_id = ?))
+            AND bm.id > ?
+            ORDER BY bm.created_at ASC");
+    $stmt->bind_param("iiiii", $user_id, $buddy_id, $buddy_id, $user_id, $after_id);
+    $stmt->execute();
+    return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+}
+
+// Send a chat message
+function sendChatMessage($sender_id, $receiver_id, $message, $conn, $type = 'text', $reply_to = null) {
+    $stmt = $conn->prepare("INSERT INTO buddy_messages (sender_id, receiver_id, message, message_type, reply_to_id) VALUES (?, ?, ?, ?, ?)");
+    $reply_to_val = $reply_to ? intval($reply_to) : null;
+    $stmt->bind_param("iissi", $sender_id, $receiver_id, $message, $type, $reply_to_val);
+    $stmt->execute();
+    return $conn->insert_id;
+}
+
+// Mark chat messages as read
+function markChatMessagesRead($user_id, $sender_id, $conn) {
+    $stmt = $conn->prepare("UPDATE buddy_messages SET is_read = 1 WHERE receiver_id = ? AND sender_id = ? AND is_read = 0");
+    $stmt->bind_param("ii", $user_id, $sender_id);
+    $stmt->execute();
+    return $stmt->affected_rows;
+}
+
+// Get unread buddy message count (for header notifications)
+function getUnreadBuddyMessageCount($user_id, $conn) {
+    $stmt = $conn->prepare("SELECT COUNT(*) as cnt FROM buddy_messages WHERE receiver_id = ? AND is_read = 0");
+    if (!$stmt) return 0;
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    return $stmt->get_result()->fetch_assoc()['cnt'];
+}
+
+// Delete a chat message (only sender can delete)
+function deleteChatMessage($message_id, $user_id, $conn) {
+    $stmt = $conn->prepare("DELETE FROM buddy_messages WHERE id = ? AND sender_id = ?");
+    $stmt->bind_param("ii", $message_id, $user_id);
+    $stmt->execute();
+    return $stmt->affected_rows > 0;
+}
+
+// Update user online status (heartbeat)
+function updateUserActivity($user_id, $conn) {
+    $stmt = $conn->prepare("UPDATE users SET last_active = NOW() WHERE id = ?");
+    if ($stmt) {
+        $stmt->bind_param("i", $user_id);
+        $stmt->execute();
+    }
+}
+
+// Check if a user is online (active in last 2 minutes)
+function isUserOnline($user_id, $conn) {
+    $stmt = $conn->prepare("SELECT last_active FROM users WHERE id = ?");
+    if (!$stmt) return false;
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    $result = $stmt->get_result()->fetch_assoc();
+    if (!$result || !$result['last_active']) return false;
+    $last = new DateTime($result['last_active']);
+    $now = new DateTime();
+    return ($now->getTimestamp() - $last->getTimestamp()) < 120;
+}
+
+// Update typing status
+function updateTypingStatus($user_id, $conn) {
+    $stmt = $conn->prepare("INSERT INTO buddy_typing_status (user_id, typing_until) 
+        VALUES (?, DATE_ADD(NOW(), INTERVAL 3 SECOND)) 
+        ON DUPLICATE KEY UPDATE typing_until = DATE_ADD(NOW(), INTERVAL 3 SECOND)");
+    if ($stmt) {
+        $stmt->bind_param("i", $user_id);
+        $stmt->execute();
+    }
+}
+
+// Check if buddy is currently typing
+function isBuddyTyping($buddy_id, $conn) {
+    $stmt = $conn->prepare("SELECT typing_until FROM buddy_typing_status WHERE user_id = ? AND typing_until > NOW()");
+    if (!$stmt) return false;
+    $stmt->bind_param("i", $buddy_id);
+    $stmt->execute();
+    return $stmt->get_result()->fetch_assoc() ? true : false;
 }
 
 ?>

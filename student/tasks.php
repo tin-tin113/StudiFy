@@ -33,7 +33,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WI
     $task_id = intval($_POST['task_id'] ?? 0);
     
     if ($action === 'toggle_status' && $task_id > 0) {
-        $query = "SELECT t.status FROM tasks t JOIN subjects s ON t.subject_id = s.id JOIN semesters sem ON s.semester_id = sem.id WHERE t.id = ? AND sem.user_id = ?";
+        $query = "SELECT t.status FROM tasks t WHERE t.id = ? AND t.user_id = ?";
         $stmt = $conn->prepare($query);
         $stmt->bind_param("ii", $task_id, $user_id);
         $stmt->execute();
@@ -52,7 +52,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WI
     }
     
     if ($action === 'delete' && $task_id > 0) {
-        $query = "DELETE t FROM tasks t JOIN subjects s ON t.subject_id = s.id JOIN semesters sem ON s.semester_id = sem.id WHERE t.id = ? AND sem.user_id = ?";
+        $query = "DELETE FROM tasks WHERE id = ? AND user_id = ?";
         $stmt = $conn->prepare($query);
         $stmt->bind_param("ii", $task_id, $user_id);
         if ($stmt->execute()) {
@@ -82,12 +82,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $is_recurring = intval($_POST['is_recurring'] ?? 0);
         $recurrence_type = sanitize($_POST['recurrence_type'] ?? '');
         $recurrence_end = !empty($_POST['recurrence_end']) ? $_POST['recurrence_end'] : null;
+        $subj_id_val = $subj_id > 0 ? $subj_id : null;
         
-        if (empty($title) || $subj_id <= 0 || empty($deadline)) {
-            $error = 'Title, subject, and deadline are required.';
+        if (empty($title) || empty($deadline)) {
+            $error = 'Title and deadline are required.';
         } else {
-            $stmt = $conn->prepare("INSERT INTO tasks (subject_id, title, description, type, priority, deadline, is_recurring, recurrence_type, recurrence_end) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->bind_param("isssssiss", $subj_id, $title, $description, $type, $priority, $deadline, $is_recurring, $recurrence_type, $recurrence_end);
+            $stmt = $conn->prepare("INSERT INTO tasks (user_id, subject_id, title, description, type, priority, deadline, is_recurring, recurrence_type, recurrence_end) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->bind_param("iisssssisss", $user_id, $subj_id_val, $title, $description, $type, $priority, $deadline, $is_recurring, $recurrence_type, $recurrence_end);
             if ($stmt->execute()) {
                 // Generate recurring copies
                 if ($is_recurring && !empty($recurrence_type) && !empty($recurrence_end)) {
@@ -99,8 +100,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         elseif ($recurrence_type === 'Monthly') $current->modify('+1 month');
                         if ($current > $end) break;
                         $next_deadline = $current->format('Y-m-d H:i:s');
-                        $ins = $conn->prepare("INSERT INTO tasks (subject_id, title, description, type, priority, deadline, is_recurring, recurrence_type, recurrence_end) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                        $ins->bind_param("isssssiss", $subj_id, $title, $description, $type, $priority, $next_deadline, $is_recurring, $recurrence_type, $recurrence_end);
+                        $ins = $conn->prepare("INSERT INTO tasks (user_id, subject_id, title, description, type, priority, deadline, is_recurring, recurrence_type, recurrence_end) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                        $ins->bind_param("iisssssisss", $user_id, $subj_id_val, $title, $description, $type, $priority, $next_deadline, $is_recurring, $recurrence_type, $recurrence_end);
                         $ins->execute();
                     }
                 }
@@ -120,10 +121,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (empty($title) || $task_id <= 0 || empty($deadline)) {
             $error = 'Title and deadline are required.';
         } else {
-            $stmt = $conn->prepare("UPDATE tasks SET title = ?, description = ?, type = ?, priority = ?, status = ?, deadline = ? WHERE id = ?");
-            $stmt->bind_param("ssssssi", $title, $description, $type, $priority, $status, $deadline, $task_id);
-            if ($stmt->execute()) { $success = 'Task updated!'; }
-            else { $error = 'Error updating task.'; }
+            // Verify task belongs to current user
+            $check = $conn->prepare("SELECT t.id FROM tasks t WHERE t.id = ? AND t.user_id = ?");
+            $check->bind_param("ii", $task_id, $user_id);
+            $check->execute();
+            if ($check->get_result()->num_rows === 0) {
+                $error = 'Task not found or access denied.';
+            } else {
+                $stmt = $conn->prepare("UPDATE tasks SET title = ?, description = ?, type = ?, priority = ?, status = ?, deadline = ? WHERE id = ?");
+                $stmt->bind_param("ssssssi", $title, $description, $type, $priority, $status, $deadline, $task_id);
+                if ($stmt->execute()) { $success = 'Task updated!'; }
+                else { $error = 'Error updating task.'; }
+            }
         }
     }
 }
@@ -161,7 +170,7 @@ $count_done = count(array_filter($all_tasks, fn($t) => $t['status'] === 'Complet
 
         <div class="page-header">
             <h2><i class="fas fa-check-circle"></i> Tasks</h2>
-            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addTaskModal" <?php echo count($all_subjects) === 0 ? 'disabled title="Add a subject first"' : ''; ?>>
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addTaskModal">
                 <i class="fas fa-plus"></i> Add Task
             </button>
         </div>
@@ -225,7 +234,11 @@ $count_done = count(array_filter($all_tasks, fn($t) => $t['status'] === 'Complet
                                 <p class="text-muted mb-2" style="font-size: 12.5px;"><?php echo htmlspecialchars($task['description']); ?></p>
                             <?php endif; ?>
                             <div class="task-meta">
+                                <?php if (!empty($task['subject_name']) && $task['subject_name'] !== 'General'): ?>
                                 <span><i class="fas fa-book"></i> <?php echo htmlspecialchars($task['subject_name']); ?></span>
+                                <?php else: ?>
+                                <span class="text-muted"><i class="fas fa-tag"></i> No subject</span>
+                                <?php endif; ?>
                                 <span>
                                     <i class="fas fa-calendar"></i> 
                                     <?php echo date('M d, Y h:i A', strtotime($task['deadline'])); ?>
@@ -268,11 +281,9 @@ $count_done = count(array_filter($all_tasks, fn($t) => $t['status'] === 'Complet
                         <i class="fas fa-clipboard-list"></i>
                         <h5>No Tasks Found</h5>
                         <p><?php echo $status_filter ? 'No tasks with this status.' : 'Create your first task to get started.'; ?></p>
-                        <?php if (count($all_subjects) > 0): ?>
                         <button class="btn btn-primary mt-2" data-bs-toggle="modal" data-bs-target="#addTaskModal">
                             <i class="fas fa-plus"></i> Add Task
                         </button>
-                        <?php endif; ?>
                     </div>
                 </div>
             <?php endif; ?>
@@ -290,21 +301,40 @@ $count_done = count(array_filter($all_tasks, fn($t) => $t['status'] === 'Complet
                 <div class="modal-body">
                     <?php echo getCSRFField(); ?>
                     <input type="hidden" name="action" value="add">
+
                     <div class="row">
                         <div class="col-md-8 mb-3">
-                            <label for="addTitle" class="form-label">Task Title</label>
+                            <label for="addTitle" class="form-label">Task Title <span class="text-danger">*</span></label>
                             <input type="text" class="form-control" id="addTitle" name="title" placeholder="e.g., Research Paper Draft" required>
                         </div>
                         <div class="col-md-4 mb-3">
-                            <label for="addSubject" class="form-label">Subject</label>
-                            <select class="form-select" id="addSubject" name="subject_id" required>
-                                <option value="">Select Subject</option>
-                                <?php foreach ($all_subjects as $sub): ?>
+                            <label for="addSubject" class="form-label">
+                                Subject <small class="text-muted">(optional)</small>
+                            </label>
+                            <select class="form-select" id="addSubject" name="subject_id">
+                                <option value="">— None —</option>
+                                <?php
+                                // Group subjects by semester using optgroups
+                                $subjects_by_sem = [];
+                                foreach ($all_subjects as $sub) {
+                                    $subjects_by_sem[$sub['semester_name']][] = $sub;
+                                }
+                                foreach ($subjects_by_sem as $sem_name => $subs): ?>
+                                <optgroup label="📅 <?php echo htmlspecialchars($sem_name); ?>">
+                                    <?php foreach ($subs as $sub): ?>
                                     <option value="<?php echo $sub['id']; ?>" <?php echo $subject_id == $sub['id'] ? 'selected' : ''; ?>>
-                                        <?php echo htmlspecialchars($sub['name']); ?> (<?php echo htmlspecialchars($sub['semester_name']); ?>)
+                                        <?php echo htmlspecialchars($sub['name']); ?>
                                     </option>
+                                    <?php endforeach; ?>
+                                </optgroup>
                                 <?php endforeach; ?>
                             </select>
+                            <?php if (count($all_subjects) === 0): ?>
+                            <div class="mt-1" style="font-size: 11px;">
+                                <span class="text-muted">Want to organize by subject?</span>
+                                <a href="subjects.php" class="text-primary" style="text-decoration: none;">Add Subject</a>
+                            </div>
+                            <?php endif; ?>
                         </div>
                     </div>
                     <div class="mb-3">
@@ -332,7 +362,7 @@ $count_done = count(array_filter($all_tasks, fn($t) => $t['status'] === 'Complet
                             </select>
                         </div>
                         <div class="col-md-4 mb-3">
-                            <label for="addDeadline" class="form-label">Deadline</label>
+                            <label for="addDeadline" class="form-label">Deadline <span class="text-danger">*</span></label>
                             <input type="datetime-local" class="form-control" id="addDeadline" name="deadline" required>
                         </div>
                     </div>

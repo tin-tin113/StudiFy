@@ -8,7 +8,7 @@
 <!-- Chart.js -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <!-- Studify Main JS -->
-<script src="<?php echo BASE_URL; ?>assets/js/main.js"></script>
+<script src="<?php echo BASE_URL; ?>assets/js/main.js?v=<?php echo filemtime(dirname(__DIR__) . '/assets/js/main.js'); ?>"></script>
 
 </body>
 </html>

@@ -19,6 +19,11 @@ if (!isLoggedIn()) {
     exit();
 }
 
+if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+    echo json_encode(['success' => false, 'error' => 'Invalid security token']);
+    exit();
+}
+
 $user_id = getCurrentUserId();
 dismissOnboarding($user_id, $conn);
 
