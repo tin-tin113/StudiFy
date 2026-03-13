@@ -131,11 +131,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <div class="row">
                     <div class="col-md-6 mb-3">
                         <label for="password" class="form-label">Password</label>
-                        <input type="password" class="form-control" id="password" name="password" placeholder="Min 8 chars, 1 uppercase, 1 number" required>
+                        <div class="input-group">
+                            <input type="password" class="form-control" id="password" name="password" placeholder="Min 8 chars, 1 uppercase, 1 number" required>
+                            <button class="btn btn-outline-secondary password-toggle" type="button" onclick="togglePasswordVisibility(this)" title="Show password">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
                     </div>
                     <div class="col-md-6 mb-3">
                         <label for="confirm_password" class="form-label">Confirm Password</label>
-                        <input type="password" class="form-control" id="confirm_password" name="confirm_password" placeholder="Repeat password" required>
+                        <div class="input-group">
+                            <input type="password" class="form-control" id="confirm_password" name="confirm_password" placeholder="Repeat password" required>
+                            <button class="btn btn-outline-secondary password-toggle" type="button" onclick="togglePasswordVisibility(this)" title="Show password">
+                                <i class="fas fa-eye"></i>
+                            </button>
+                        </div>
                     </div>
                 </div>
 
@@ -152,5 +162,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="<?php echo BASE_URL; ?>assets/js/main.js"></script>
+    <script>
+    function togglePasswordVisibility(btn) {
+        const input = btn.closest('.input-group').querySelector('input');
+        const icon = btn.querySelector('i');
+        if (input.type === 'password') {
+            input.type = 'text';
+            icon.classList.replace('fa-eye', 'fa-eye-slash');
+            btn.title = 'Hide password';
+        } else {
+            input.type = 'password';
+            icon.classList.replace('fa-eye-slash', 'fa-eye');
+            btn.title = 'Show password';
+        }
+    }
+    </script>
 </body>
 </html>

@@ -292,15 +292,18 @@ $count_done = intval($status_counts['completed']);
                                 <span class="badge bg-<?php echo $task['priority'] === 'High' ? 'danger' : ($task['priority'] === 'Medium' ? 'warning' : 'success'); ?>">
                                     <?php echo $task['priority']; ?>
                                 </span>
-                                <span class="task-status-badge status-<?php echo strtolower(str_replace(' ', '-', $task['status'])); ?>">
-                                    <?php if ($task['status'] === 'Completed'): ?>
+                                <span class="task-status-badge <?php if ($is_overdue): ?>status-overdue<?php else: ?>status-<?php echo strtolower(str_replace(' ', '-', $task['status'])); ?><?php endif; ?>">
+                                    <?php if ($is_overdue): ?>
+                                        <i class="fas fa-exclamation-triangle"></i>
+                                        Overdue
+                                    <?php elseif ($task['status'] === 'Completed'): ?>
                                         <i class="fas fa-check-circle"></i>
                                     <?php elseif ($task['status'] === 'In Progress'): ?>
                                         <i class="fas fa-spinner fa-pulse"></i>
                                     <?php else: ?>
                                         <i class="fas fa-hourglass-half"></i>
                                     <?php endif; ?>
-                                    <?php echo $task['status']; ?>
+                                    <?php if (!$is_overdue): ?><?php echo $task['status']; ?><?php endif; ?>
                                 </span>
                                 <span class="badge bg-secondary"><?php echo $task['type']; ?></span>
                                 <?php if (!empty($task['is_recurring'])): ?>

@@ -169,16 +169,16 @@ function toggleTaskStatus(taskId, baseUrl) {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
         body: `action=toggle_status&task_id=${taskId}&csrf_token=${getCSRFToken()}`
     })
-    .then(res => res.json())
-    .then(data => {
-        if (data.success) {
-            StudifyToast.success('Task Updated', data.message || 'Status changed successfully');
-            setTimeout(() => location.reload(), 800);
-        } else {
-            StudifyToast.error('Error', data.message || 'Failed to update task');
-        }
-    })
-    .catch(() => StudifyToast.error('Error', 'Network error. Please try again.'));
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                StudifyToast.success('Task Updated', data.message || 'Status changed successfully');
+                setTimeout(() => location.reload(), 800);
+            } else {
+                StudifyToast.error('Error', data.message || 'Failed to update task');
+            }
+        })
+        .catch(() => StudifyToast.error('Error', 'Network error. Please try again.'));
 }
 
 // ─── AJAX Task Delete ───
@@ -188,28 +188,28 @@ function deleteTask(taskId, baseUrl) {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
         body: `action=delete&task_id=${taskId}&csrf_token=${getCSRFToken()}`
     })
-    .then(res => res.json())
-    .then(data => {
-        if (data.success) {
-            StudifyToast.success('Task Deleted', 'Task removed successfully');
-            const card = document.getElementById('task-' + taskId);
-            if (card) {
-                card.style.transition = 'all 0.3s ease';
-                card.style.opacity = '0';
-                card.style.transform = 'translateX(20px)';
-                setTimeout(() => {
-                    card.remove();
-                    const container = document.querySelector('.task-list');
-                    if (container && container.children.length === 0) {
-                        location.reload();
-                    }
-                }, 300);
+        .then(res => res.json())
+        .then(data => {
+            if (data.success) {
+                StudifyToast.success('Task Deleted', 'Task removed successfully');
+                const card = document.getElementById('task-' + taskId);
+                if (card) {
+                    card.style.transition = 'all 0.3s ease';
+                    card.style.opacity = '0';
+                    card.style.transform = 'translateX(20px)';
+                    setTimeout(() => {
+                        card.remove();
+                        const container = document.querySelector('.task-list');
+                        if (container && container.children.length === 0) {
+                            location.reload();
+                        }
+                    }, 300);
+                }
+            } else {
+                StudifyToast.error('Error', data.message || 'Failed to delete task');
             }
-        } else {
-            StudifyToast.error('Error', data.message || 'Failed to delete task');
-        }
-    })
-    .catch(() => StudifyToast.error('Error', 'Network error. Please try again.'));
+        })
+        .catch(() => StudifyToast.error('Error', 'Network error. Please try again.'));
 }
 
 // ─── Pomodoro Timer ───
@@ -299,7 +299,7 @@ const PomodoroTimer = {
 
     complete() {
         this.pause();
-        
+
         if (!this.isBreak) {
             // Save study session via AJAX
             const baseUrl = document.querySelector('meta[name="base-url"]')?.content || '../';
@@ -308,20 +308,20 @@ const PomodoroTimer = {
                 headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
                 body: `action=save_session&duration=${this.duration / 60}&type=Focus&csrf_token=${getCSRFToken()}`
             })
-            .then(res => res.json())
-            .then(data => {
-                if (data.success) {
-                    StudifyToast.success('Session Complete! 🎉', `${this.duration / 60} minutes of focused study logged.`);
-                }
-            })
-            .catch(() => {});
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) {
+                        StudifyToast.success('Session Complete! 🎉', `${this.duration / 60} minutes of focused study logged.`);
+                    }
+                })
+                .catch(() => { });
         }
 
         // Play notification sound (if available)
         try {
             const audio = new Audio('data:audio/wav;base64,UklGRl9vT19XQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQ==');
-            audio.play().catch(() => {});
-        } catch(e) {}
+            audio.play().catch(() => { });
+        } catch (e) { }
 
         StudifyToast.info('Timer Finished', this.isBreak ? 'Break is over! Time to focus.' : 'Great work! Take a break.');
     }
@@ -382,15 +382,15 @@ const GlobalSearch = {
         this.modal = document.getElementById('searchModal');
         this.input = document.getElementById('globalSearchInput');
         this.results = document.getElementById('searchResults');
-        
+
         if (!this.modal || !this.input) return;
-        
+
         // Input handler with debounce
         this.input.addEventListener('input', () => {
             clearTimeout(this.debounceTimer);
             this.debounceTimer = setTimeout(() => this.search(), 300);
         });
-        
+
         // Keyboard navigation inside search
         this.input.addEventListener('keydown', (e) => {
             if (e.key === 'Escape') {
@@ -406,7 +406,7 @@ const GlobalSearch = {
                 this.selectCurrent();
             }
         });
-        
+
         // Click outside to close
         this.modal.addEventListener('click', (e) => {
             if (e.target === this.modal) this.close();
@@ -455,11 +455,11 @@ const GlobalSearch = {
         }
 
         const baseUrl = document.querySelector('meta[name="base-url"]')?.content || '../';
-        
+
         try {
             const response = await fetch(`${baseUrl}student/global_search.php?q=${encodeURIComponent(query)}`);
             const data = await response.json();
-            
+
             if (data.success && data.results.length > 0) {
                 this.renderResults(data.results, baseUrl);
             } else {
@@ -478,25 +478,25 @@ const GlobalSearch = {
     renderResults(results, baseUrl) {
         let html = '';
         let lastType = '';
-        
+
         results.forEach((r, i) => {
             if (r.type !== lastType) {
                 const labels = { task: 'Tasks', note: 'Notes', subject: 'Subjects' };
                 html += `<div class="search-result-group">${labels[r.type] || r.type}</div>`;
                 lastType = r.type;
             }
-            
+
             const icons = { task: 'fa-check-circle', note: 'fa-sticky-note', subject: 'fa-book' };
             const links = {
                 task: `${baseUrl}student/tasks.php`,
                 note: `${baseUrl}student/notes.php`,
                 subject: `${baseUrl}student/subjects.php`
             };
-            
+
             const title = r.data.title || r.data.name || '';
             const meta = r.data.subject_name || r.data.semester_name || r.data.code || '';
             const statusBadge = r.data.status ? ` · ${r.data.status}` : '';
-            
+
             html += `
                 <a href="${links[r.type]}" class="search-result-item" data-index="${i}">
                     <div class="search-result-icon ${r.type}">
@@ -509,7 +509,7 @@ const GlobalSearch = {
                 </a>
             `;
         });
-        
+
         this.results.innerHTML = html;
         this.selectedIndex = -1;
     },
@@ -517,13 +517,13 @@ const GlobalSearch = {
     navigate(direction) {
         const items = this.results.querySelectorAll('.search-result-item');
         if (items.length === 0) return;
-        
+
         items.forEach(i => i.classList.remove('active'));
         this.selectedIndex += direction;
-        
+
         if (this.selectedIndex < 0) this.selectedIndex = items.length - 1;
         if (this.selectedIndex >= items.length) this.selectedIndex = 0;
-        
+
         items[this.selectedIndex].classList.add('active');
         items[this.selectedIndex].scrollIntoView({ block: 'nearest' });
     },
@@ -550,44 +550,44 @@ const KeyboardShortcuts = {
             const el = document.activeElement;
             const tag = el?.tagName;
             const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
-                         || el?.isContentEditable || el?.closest?.('.ql-editor');
-            
+                || el?.isContentEditable || el?.closest?.('.ql-editor');
+
             // Ctrl+K / Cmd+K → Open search
             if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
                 e.preventDefault();
                 GlobalSearch.open();
                 return;
             }
-            
+
             // ESC → Close search (handled by search input too)
             if (e.key === 'Escape') {
                 GlobalSearch.close();
                 return;
             }
-            
+
             // Skip other shortcuts if user is typing
             if (isInput) return;
-            
+
             const baseUrl = document.querySelector('meta[name="base-url"]')?.content || '../';
-            
+
             // N → New task (go to tasks page)
             if (e.key === 'n' || e.key === 'N') {
                 window.location.href = baseUrl + 'student/tasks.php';
                 return;
             }
-            
+
             // P → Pomodoro
             if (e.key === 'p' || e.key === 'P') {
                 window.location.href = baseUrl + 'student/pomodoro.php';
                 return;
             }
-            
+
             // D → Dashboard
             if (e.key === 'd' || e.key === 'D') {
                 window.location.href = baseUrl + 'student/dashboard.php';
                 return;
             }
-            
+
             // / → Focus search
             if (e.key === '/') {
                 e.preventDefault();
@@ -727,8 +727,8 @@ const FocusAmbiance = {
                     // Occasional clink
                     if (Math.random() < 0.00004) {
                         const cLen = Math.floor(ctx.sampleRate * 0.02);
-                        for (let j = 0; j < cLen && (i+j) < bufferSize; j++) {
-                            data[i+j] += Math.sin(j / cLen * Math.PI * 2 * 4000) * Math.exp(-j/cLen*5) * 0.05;
+                        for (let j = 0; j < cLen && (i + j) < bufferSize; j++) {
+                            data[i + j] += Math.sin(j / cLen * Math.PI * 2 * 4000) * Math.exp(-j / cLen * 5) * 0.05;
                         }
                     }
                 }
@@ -799,7 +799,7 @@ const FocusAmbiance = {
         const sound = this.sounds[type];
         if (sound) {
             sound.gain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.1);
-            setTimeout(() => { try { sound.source.stop(); } catch(e) {} }, 200);
+            setTimeout(() => { try { sound.source.stop(); } catch (e) { } }, 200);
             delete this.sounds[type];
         }
         this.active.delete(type);
@@ -887,6 +887,21 @@ function showToast(message, type = 'info') {
     StudifyToast.show(type, titles[type] || 'Notice', message);
 }
 
+// ─── Password Visibility Toggle ───
+function togglePasswordVisibility(btn) {
+    const input = btn.closest('.input-group').querySelector('input');
+    const icon = btn.querySelector('i');
+    if (input.type === 'password') {
+        input.type = 'text';
+        icon.classList.replace('fa-eye', 'fa-eye-slash');
+        btn.title = 'Hide password';
+    } else {
+        input.type = 'password';
+        icon.classList.replace('fa-eye-slash', 'fa-eye');
+        btn.title = 'Show password';
+    }
+}
+
 // ─── Confirmation Dialog System ───
 const StudifyConfirm = {
     _resolve: null,
@@ -935,10 +950,10 @@ const StudifyConfirm = {
 
         // Set icon and colors based on type
         const configs = {
-            danger:  { icon: 'fas fa-exclamation-triangle', color: 'var(--danger)',  btnClass: 'btn-danger' },
-            warning: { icon: 'fas fa-exclamation-circle',   color: 'var(--warning)', btnClass: 'btn-warning' },
-            info:    { icon: 'fas fa-info-circle',          color: 'var(--info)',    btnClass: 'btn-info' },
-            success: { icon: 'fas fa-check-circle',         color: 'var(--success)', btnClass: 'btn-success' }
+            danger: { icon: 'fas fa-exclamation-triangle', color: 'var(--danger)', btnClass: 'btn-danger' },
+            warning: { icon: 'fas fa-exclamation-circle', color: 'var(--warning)', btnClass: 'btn-warning' },
+            info: { icon: 'fas fa-info-circle', color: 'var(--info)', btnClass: 'btn-info' },
+            success: { icon: 'fas fa-check-circle', color: 'var(--success)', btnClass: 'btn-success' }
         };
         const cfg = configs[type] || configs.danger;
 
@@ -993,7 +1008,7 @@ const StudifyConfirm = {
     form(event, title, message, type = 'danger') {
         event.preventDefault();
         const form = event.target;
-        
+
         // Skip if already confirmed
         if (form.querySelector('input[name="_confirmed"]')) {
             return true;
@@ -1012,7 +1027,7 @@ const StudifyConfirm = {
         event.preventDefault();
         const btn = event.target.closest('button');
         const form = btn?.closest('form');
-        
+
         if (form) {
             this._pendingForm = form;
             this.show(title, message, type, 'Confirm');

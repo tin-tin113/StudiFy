@@ -86,6 +86,29 @@ else $greeting = 'Good Evening';
 ?>
 <?php include '../includes/header.php'; ?>
 
+        <?php
+        // Overdue tasks count
+        $overdue_count = getOverdueTasksCount($user_id, $conn);
+        ?>
+
+        <?php if ($overdue_count > 0): ?>
+        <!-- Overdue Tasks Banner -->
+        <div class="overdue-banner mb-4">
+            <div class="d-flex align-items-center gap-3">
+                <div class="overdue-banner-icon">
+                    <i class="fas fa-exclamation-triangle"></i>
+                </div>
+                <div>
+                    <div class="fw-700" style="font-size: 14px;">You have <?php echo $overdue_count; ?> overdue task<?php echo $overdue_count > 1 ? 's' : ''; ?></div>
+                    <div style="font-size: 12px; opacity: 0.9;">These tasks have passed their deadline. Consider completing or rescheduling them.</div>
+                </div>
+                <a href="tasks.php?status=overdue" class="btn btn-sm btn-light ms-auto" style="white-space: nowrap;">
+                    <i class="fas fa-eye"></i> View Tasks
+                </a>
+            </div>
+        </div>
+        <?php endif; ?>
+
         <!-- Welcome Banner -->
         <div class="welcome-card mb-4">
             <div class="welcome-accent"></div>

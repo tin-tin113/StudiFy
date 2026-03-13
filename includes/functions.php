@@ -935,4 +935,179 @@ function isBuddyTyping($buddy_id, $conn) {
     return $stmt->get_result()->fetch_assoc() ? true : false;
 }
 
+// ============================================
+// NOTIFICATION FUNCTIONS
+// ============================================
+
+// Create a notification
+function createNotification($user_id, $type, $title, $message, $conn, $ref_id = null, $ref_type = 'general') {
+    $stmt = $conn->prepare("INSERT INTO notifications (user_id, type, title, message, reference_id, reference_type) VALUES (?, ?, ?, ?, ?, ?)");
+    $stmt->bind_param("isssis", $user_id, $type, $title, $message, $ref_id, $ref_type);
+    return $stmt->execute();
+}
+
+// Get unread notification count
+function getUnreadNotificationCount($user_id, $conn) {
+    $stmt = $conn->prepare("SELECT COUNT(*) as cnt FROM notifications WHERE user_id = ? AND is_read = 0 AND is_dismissed = 0");
+    if (!$stmt) return 0;
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    return $stmt->get_result()->fetch_assoc()['cnt'];
+}
+
+// Get recent notifications (for dropdown)
+function getRecentNotifications($user_id, $conn, $limit = 8) {
+    $stmt = $conn->prepare(
+        "SELECT n.*, t.title as task_title FROM notifications n
+         LEFT JOIN tasks t ON n.reference_type = 'task' AND n.reference_id = t.id
+         WHERE n.user_id = ? AND n.is_dismissed = 0
+         ORDER BY n.is_read ASC, n.created_at DESC LIMIT ?"
+    );
+    $stmt->bind_param("ii", $user_id, $limit);
+    $stmt->execute();
+    return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+}
+
+// Get all notifications (paginated, for full page)
+function getAllNotifications($user_id, $conn, $page = 1, $per_page = 20, $filter = 'all') {
+    $offset = ($page - 1) * $per_page;
+
+    $where = "n.user_id = ? AND n.is_dismissed = 0";
+    $params = [$user_id];
+    $types = "i";
+
+    if ($filter === 'unread') {
+        $where .= " AND n.is_read = 0";
+    } elseif ($filter === 'deadlines') {
+        $where .= " AND n.type IN ('deadline_24h', 'deadline_1h')";
+    } elseif ($filter === 'overdue') {
+        $where .= " AND n.type = 'overdue'";
+    } elseif ($filter === 'study') {
+        $where .= " AND n.type IN ('study_reminder', 'streak_risk')";
+    }
+
+    // Count query
+    $count_stmt = $conn->prepare("SELECT COUNT(*) as total FROM notifications n WHERE $where");
+    $count_stmt->bind_param($types, ...$params);
+    $count_stmt->execute();
+    $total = $count_stmt->get_result()->fetch_assoc()['total'];
+
+    // Data query
+    $stmt = $conn->prepare(
+        "SELECT n.*, t.title as task_title FROM notifications n
+         LEFT JOIN tasks t ON n.reference_type = 'task' AND n.reference_id = t.id
+         WHERE $where
+         ORDER BY n.created_at DESC LIMIT ? OFFSET ?"
+    );
+    $params[] = $per_page;
+    $params[] = $offset;
+    $types .= "ii";
+    $stmt->bind_param($types, ...$params);
+    $stmt->execute();
+    $notifications = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+
+    return ['data' => $notifications, 'total' => $total];
+}
+
+// Mark a single notification as read
+function markNotificationRead($notification_id, $user_id, $conn) {
+    $stmt = $conn->prepare("UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?");
+    $stmt->bind_param("ii", $notification_id, $user_id);
+    return $stmt->execute();
+}
+
+// Mark all notifications as read
+function markAllNotificationsRead($user_id, $conn) {
+    $stmt = $conn->prepare("UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0");
+    $stmt->bind_param("i", $user_id);
+    return $stmt->execute();
+}
+
+// Dismiss a notification (soft delete)
+function dismissNotification($notification_id, $user_id, $conn) {
+    $stmt = $conn->prepare("UPDATE notifications SET is_dismissed = 1 WHERE id = ? AND user_id = ?");
+    $stmt->bind_param("ii", $notification_id, $user_id);
+    return $stmt->execute();
+}
+
+// Get notification preferences (returns defaults if no row exists)
+function getNotificationPreferences($user_id, $conn) {
+    $defaults = [
+        'deadline_24h' => 1,
+        'deadline_1h' => 1,
+        'overdue_alerts' => 1,
+        'study_reminders' => 1,
+        'streak_alerts' => 1
+    ];
+
+    $stmt = $conn->prepare("SELECT * FROM notification_preferences WHERE user_id = ?");
+    if (!$stmt) return $defaults;
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    $result = $stmt->get_result()->fetch_assoc();
+
+    if (!$result) return $defaults;
+
+    return [
+        'deadline_24h' => (int)$result['deadline_24h'],
+        'deadline_1h' => (int)$result['deadline_1h'],
+        'overdue_alerts' => (int)$result['overdue_alerts'],
+        'study_reminders' => (int)$result['study_reminders'],
+        'streak_alerts' => (int)$result['streak_alerts']
+    ];
+}
+
+// Update notification preferences
+function updateNotificationPreferences($user_id, $prefs, $conn) {
+    $stmt = $conn->prepare(
+        "INSERT INTO notification_preferences (user_id, deadline_24h, deadline_1h, overdue_alerts, study_reminders, streak_alerts)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE deadline_24h = VALUES(deadline_24h), deadline_1h = VALUES(deadline_1h),
+         overdue_alerts = VALUES(overdue_alerts), study_reminders = VALUES(study_reminders), streak_alerts = VALUES(streak_alerts)"
+    );
+    $d24 = (int)($prefs['deadline_24h'] ?? 1);
+    $d1 = (int)($prefs['deadline_1h'] ?? 1);
+    $overdue = (int)($prefs['overdue_alerts'] ?? 1);
+    $study = (int)($prefs['study_reminders'] ?? 1);
+    $streak = (int)($prefs['streak_alerts'] ?? 1);
+    $stmt->bind_param("iiiiii", $user_id, $d24, $d1, $overdue, $study, $streak);
+    return $stmt->execute();
+}
+
+// Format notification time as "time ago"
+function notificationTimeAgo($datetime) {
+    $now = new DateTime();
+    $time = new DateTime($datetime);
+    $diff = $now->diff($time);
+
+    if ($diff->y > 0) return $diff->y . ' year' . ($diff->y > 1 ? 's' : '') . ' ago';
+    if ($diff->m > 0) return $diff->m . ' month' . ($diff->m > 1 ? 's' : '') . ' ago';
+    if ($diff->d > 0) return $diff->d . ' day' . ($diff->d > 1 ? 's' : '') . ' ago';
+    if ($diff->h > 0) return $diff->h . ' hour' . ($diff->h > 1 ? 's' : '') . ' ago';
+    if ($diff->i > 0) return $diff->i . ' min' . ($diff->i > 1 ? 's' : '') . ' ago';
+    return 'Just now';
+}
+
+// Get notification icon based on type
+function getNotificationIcon($type) {
+    switch ($type) {
+        case 'deadline_1h':  return ['fas fa-exclamation-circle', 'var(--danger)'];
+        case 'deadline_24h': return ['fas fa-clock', 'var(--warning)'];
+        case 'overdue':      return ['fas fa-exclamation-triangle', 'var(--danger)'];
+        case 'streak_risk':  return ['fas fa-fire', 'var(--accent, #d97706)'];
+        case 'study_reminder': return ['fas fa-brain', 'var(--primary)'];
+        default:             return ['fas fa-bell', 'var(--primary)'];
+    }
+}
+
+// Get overdue tasks count (for dashboard banner)
+function getOverdueTasksCount($user_id, $conn) {
+    $stmt = $conn->prepare(
+        "SELECT COUNT(*) as cnt FROM tasks WHERE user_id = ? AND status != 'Completed' AND deadline < NOW() AND parent_id IS NULL"
+    );
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    return $stmt->get_result()->fetch_assoc()['cnt'];
+}
+
 ?>

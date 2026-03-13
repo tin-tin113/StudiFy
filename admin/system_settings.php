@@ -146,7 +146,12 @@ $all_users = getAllUsers($conn);
                             </div>
                             <div class="mb-3">
                                 <label for="newPassword" class="form-label">New Password</label>
-                                <input type="password" class="form-control" id="newPassword" name="new_password" placeholder="Min. 6 characters" minlength="6" required>
+                                <div class="input-group">
+                                    <input type="password" class="form-control" id="newPassword" name="new_password" placeholder="Min. 6 characters" minlength="6" required>
+                                    <button class="btn btn-outline-secondary password-toggle" type="button" onclick="togglePasswordVisibility(this)" title="Show password">
+                                        <i class="fas fa-eye"></i>
+                                    </button>
+                                </div>
                             </div>
                             <button type="submit" class="btn btn-warning" onclick="return StudifyConfirm.buttonConfirm(event, 'Reset Password', 'This will reset the password for the selected user. Are you sure?', 'warning');">
                                 <i class="fas fa-key"></i> Reset Password

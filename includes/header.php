@@ -22,6 +22,8 @@ if (isset($_SESSION['user_id']) && function_exists('getUserInfo')) {
 $pending_count = 0;
 $unread_ann_count = 0;
 $unread_nudge_count = 0;
+$unread_notif_count = 0;
+$recent_notifications = [];
 if (isset($_SESSION['user_id']) && function_exists('getPendingTasksCount') && $user_role !== 'admin') {
     $pending_count = getPendingTasksCount($_SESSION['user_id'], $conn);
     // Count unread announcements
@@ -36,6 +38,13 @@ if (isset($_SESSION['user_id']) && function_exists('getPendingTasksCount') && $u
         $unread_nudge_count = getUnreadBuddyMessageCount($_SESSION['user_id'], $conn);
     } elseif (function_exists('getUnreadNudgeCount')) {
         $unread_nudge_count = getUnreadNudgeCount($_SESSION['user_id'], $conn);
+    }
+    // Run notification checker & get notification data
+    if (function_exists('getUnreadNotificationCount')) {
+        require_once __DIR__ . '/notification_checker.php';
+        runNotificationChecker($_SESSION['user_id'], $conn);
+        $unread_notif_count = getUnreadNotificationCount($_SESSION['user_id'], $conn);
+        $recent_notifications = getRecentNotifications($_SESSION['user_id'], $conn, 8);
     }
 }
 
@@ -154,6 +163,13 @@ $csrf_token = generateCSRFToken();
                class="nav-link-sidebar <?php echo $current_page === 'study_analytics.php' ? 'active' : ''; ?>">
                 <i class="fas fa-chart-area"></i> <span class="sidebar-link-text">Analytics</span>
             </a>
+            <a href="<?php echo BASE_URL; ?>student/notifications.php" title="Notifications"
+               class="nav-link-sidebar <?php echo $current_page === 'notifications.php' ? 'active' : ''; ?>">
+                <i class="fas fa-bell"></i> <span class="sidebar-link-text">Notifications</span>
+                <?php if ($unread_notif_count > 0): ?>
+                    <span class="badge bg-danger ms-auto" style="font-size: 10px;"><?php echo $unread_notif_count; ?></span>
+                <?php endif; ?>
+            </a>
             <a href="<?php echo BASE_URL; ?>student/study_buddy.php" title="Study Buddy"
                class="nav-link-sidebar <?php echo $current_page === 'study_buddy.php' ? 'active' : ''; ?>">
                 <i class="fas fa-user-friends"></i> <span class="sidebar-link-text">Study Buddy</span>
@@ -211,21 +227,20 @@ $csrf_token = generateCSRFToken();
             <i class="fas fa-moon"></i>
         </button>
         
-        <?php $notif_total = $pending_count + $unread_ann_count + $unread_nudge_count; ?>
+        <?php $notif_total = $unread_notif_count + $unread_ann_count + $unread_nudge_count; ?>
         <div class="dropdown">
             <button class="topbar-btn" data-bs-toggle="dropdown" aria-expanded="false" title="<?php echo $notif_total > 0 ? $notif_total . ' notification' . ($notif_total > 1 ? 's' : '') : 'No notifications'; ?>">
                 <i class="fas fa-bell"></i>
                 <?php if ($notif_total > 0): ?><span class="badge-dot"></span><?php endif; ?>
             </button>
-            <ul class="dropdown-menu dropdown-menu-end" style="min-width: 280px;">
-                <li class="px-3 py-2" style="font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Notifications</li>
-                <li><hr class="dropdown-divider"></li>
-                <?php if ($notif_total === 0): ?>
-                <li class="px-3 py-3 text-center">
-                    <i class="fas fa-check-circle text-success" style="font-size: 1.5rem; opacity: 0.5;"></i>
-                    <p class="mb-0 mt-1" style="font-size: 13px; color: var(--text-muted);">You're all caught up!</p>
+            <ul class="dropdown-menu dropdown-menu-end notification-dropdown" style="min-width: 340px; max-height: 420px; overflow-y: auto;">
+                <li class="px-3 py-2 d-flex justify-content-between align-items-center">
+                    <span style="font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Notifications</span>
+                    <?php if ($unread_notif_count > 0): ?>
+                    <span class="badge bg-primary" style="font-size: 10px;"><?php echo $unread_notif_count; ?> new</span>
+                    <?php endif; ?>
                 </li>
-                <?php else: ?>
+                <li><hr class="dropdown-divider"></li>
                 <?php if ($unread_ann_count > 0): ?>
                 <li>
                     <a class="dropdown-item" href="<?php echo BASE_URL; ?>student/dashboard.php">
@@ -233,21 +248,51 @@ $csrf_token = generateCSRFToken();
                     </a>
                 </li>
                 <?php endif; ?>
-                <?php if ($pending_count > 0): ?>
-                <li>
-                    <a class="dropdown-item" href="<?php echo BASE_URL; ?>student/tasks.php">
-                        <i class="fas fa-tasks text-warning"></i> <?php echo $pending_count; ?> pending task<?php echo $pending_count > 1 ? 's' : ''; ?>
-                    </a>
-                </li>
-                <?php endif; ?>
                 <?php if ($unread_nudge_count > 0): ?>
                 <li>
                     <a class="dropdown-item" href="<?php echo BASE_URL; ?>student/study_buddy.php">
-                        <i class="fas fa-hand-peace text-primary"></i> <?php echo $unread_nudge_count; ?> buddy nudge<?php echo $unread_nudge_count > 1 ? 's' : ''; ?>
+                        <i class="fas fa-hand-peace text-primary"></i> <?php echo $unread_nudge_count; ?> buddy message<?php echo $unread_nudge_count > 1 ? 's' : ''; ?>
                     </a>
                 </li>
                 <?php endif; ?>
+                <?php if (count($recent_notifications) > 0): ?>
+                    <?php if ($unread_ann_count > 0 || $unread_nudge_count > 0): ?><li><hr class="dropdown-divider"></li><?php endif; ?>
+                    <?php foreach ($recent_notifications as $rn):
+                        $rn_icon = getNotificationIcon($rn['type']);
+                        $rn_unread = !$rn['is_read'];
+                    ?>
+                    <li>
+                        <a class="dropdown-item d-flex align-items-start gap-2 <?php echo $rn_unread ? 'fw-600' : ''; ?>" 
+                           href="<?php echo BASE_URL; ?>student/notifications.php"
+                           style="white-space: normal; padding: 10px 16px; <?php echo $rn_unread ? 'background: var(--primary-50, rgba(22,163,74,0.04));' : ''; ?>">
+                            <i class="<?php echo $rn_icon[0]; ?> mt-1" style="color: <?php echo $rn_icon[1]; ?>; font-size: 13px; flex-shrink: 0;"></i>
+                            <div style="min-width: 0;">
+                                <div style="font-size: 12.5px; line-height: 1.4;">
+                                    <?php if ($rn_unread): ?><span class="notification-dot"></span><?php endif; ?>
+                                    <?php echo htmlspecialchars($rn['title']); ?>
+                                </div>
+                                <div class="text-muted" style="font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                    <?php echo htmlspecialchars(mb_substr($rn['message'], 0, 60)); ?><?php echo mb_strlen($rn['message']) > 60 ? '...' : ''; ?>
+                                </div>
+                                <div class="text-muted" style="font-size: 10px; margin-top: 2px;">
+                                    <?php echo notificationTimeAgo($rn['created_at']); ?>
+                                </div>
+                            </div>
+                        </a>
+                    </li>
+                    <?php endforeach; ?>
+                <?php elseif ($notif_total === 0): ?>
+                <li class="px-3 py-3 text-center">
+                    <i class="fas fa-check-circle text-success" style="font-size: 1.5rem; opacity: 0.5;"></i>
+                    <p class="mb-0 mt-1" style="font-size: 13px; color: var(--text-muted);">You're all caught up!</p>
+                </li>
                 <?php endif; ?>
+                <li><hr class="dropdown-divider"></li>
+                <li class="text-center py-2">
+                    <a href="<?php echo BASE_URL; ?>student/notifications.php" class="text-primary fw-600" style="font-size: 12px; text-decoration: none;">
+                        View All Notifications <i class="fas fa-arrow-right ms-1"></i>
+                    </a>
+                </li>
             </ul>
         </div>
 

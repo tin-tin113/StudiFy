@@ -243,13 +243,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             <div class="row">
                                 <div class="col-md-6 mb-3">
                                     <label for="new_password" class="form-label">New Password</label>
-                                    <input type="password" class="form-control" id="new_password" name="new_password"
-                                           placeholder="Leave blank to keep current">
+                                    <div class="input-group">
+                                        <input type="password" class="form-control" id="new_password" name="new_password"
+                                               placeholder="Leave blank to keep current">
+                                        <button class="btn btn-outline-secondary password-toggle" type="button" onclick="togglePasswordVisibility(this)" title="Show password">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                    </div>
                                 </div>
                                 <div class="col-md-6 mb-3">
                                     <label for="confirm_password" class="form-label">Confirm New Password</label>
-                                    <input type="password" class="form-control" id="confirm_password" name="confirm_password"
-                                           placeholder="Repeat new password">
+                                    <div class="input-group">
+                                        <input type="password" class="form-control" id="confirm_password" name="confirm_password"
+                                               placeholder="Repeat new password">
+                                        <button class="btn btn-outline-secondary password-toggle" type="button" onclick="togglePasswordVisibility(this)" title="Show password">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
 
@@ -265,6 +275,65 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </div>
                 </div>
             </div>
+
+            <?php if ($user['role'] !== 'admin'): ?>
+            <!-- Notification Preferences -->
+            <div class="card mt-4">
+                <div class="card-header">
+                    <i class="fas fa-bell"></i> Notification Preferences
+                </div>
+                <div class="card-body">
+                    <p class="text-muted mb-3" style="font-size: 13px;">Choose which notifications you'd like to receive.</p>
+                    <?php $notif_prefs = getNotificationPreferences($user_id, $conn); ?>
+                    <div class="d-flex flex-column gap-3">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <div class="fw-600" style="font-size: 13px;"><i class="fas fa-clock text-warning me-2"></i>Due in 24 Hours</div>
+                                <div class="text-muted" style="font-size: 11px;">Alert when tasks are due within 24 hours</div>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input profile-pref-toggle" type="checkbox" data-pref="deadline_24h" <?php echo $notif_prefs['deadline_24h'] ? 'checked' : ''; ?>>
+                            </div>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <div class="fw-600" style="font-size: 13px;"><i class="fas fa-exclamation-circle text-danger me-2"></i>Due in 1 Hour</div>
+                                <div class="text-muted" style="font-size: 11px;">Urgent alert when tasks are due within 1 hour</div>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input profile-pref-toggle" type="checkbox" data-pref="deadline_1h" <?php echo $notif_prefs['deadline_1h'] ? 'checked' : ''; ?>>
+                            </div>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <div class="fw-600" style="font-size: 13px;"><i class="fas fa-exclamation-triangle text-danger me-2"></i>Overdue Alerts</div>
+                                <div class="text-muted" style="font-size: 11px;">Notify when tasks pass their deadline</div>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input profile-pref-toggle" type="checkbox" data-pref="overdue_alerts" <?php echo $notif_prefs['overdue_alerts'] ? 'checked' : ''; ?>>
+                            </div>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <div class="fw-600" style="font-size: 13px;"><i class="fas fa-fire" style="color: var(--accent, #d97706);"></i> Streak Alerts</div>
+                                <div class="text-muted" style="font-size: 11px;">Warn when your study streak is at risk</div>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input profile-pref-toggle" type="checkbox" data-pref="streak_alerts" <?php echo $notif_prefs['streak_alerts'] ? 'checked' : ''; ?>>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-3">
+                        <button class="btn btn-sm btn-primary" onclick="saveProfilePrefs()">
+                            <i class="fas fa-save"></i> Save Preferences
+                        </button>
+                        <span id="prefsSavedMsg" class="text-success ms-2" style="font-size: 12px; display: none;">
+                            <i class="fas fa-check-circle"></i> Saved!
+                        </span>
+                    </div>
+                </div>
+            </div>
+            <?php endif; ?>
         </div>
 
 <script>
@@ -273,6 +342,41 @@ function previewPhoto(input) {
         // Auto-submit when photo is selected
         input.closest('form').submit();
     }
+}
+
+function togglePasswordVisibility(btn) {
+    const input = btn.closest('.input-group').querySelector('input');
+    const icon = btn.querySelector('i');
+    if (input.type === 'password') {
+        input.type = 'text';
+        icon.classList.replace('fa-eye', 'fa-eye-slash');
+        btn.title = 'Hide password';
+    } else {
+        input.type = 'password';
+        icon.classList.replace('fa-eye-slash', 'fa-eye');
+        btn.title = 'Show password';
+    }
+}
+
+function saveProfilePrefs() {
+    var csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    var body = 'action=save_preferences&csrf_token=' + csrfToken;
+    document.querySelectorAll('.profile-pref-toggle').forEach(function(toggle) {
+        body += '&' + toggle.dataset.pref + '=' + (toggle.checked ? 1 : 0);
+    });
+    fetch('<?php echo BASE_URL; ?>student/notification_api.php', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        body: body
+    }).then(function(r) { return r.json(); }).then(function(data) {
+        if (data.success) {
+            var msg = document.getElementById('prefsSavedMsg');
+            if (msg) {
+                msg.style.display = 'inline';
+                setTimeout(function() { msg.style.display = 'none'; }, 2500);
+            }
+        }
+    });
 }
 </script>
 

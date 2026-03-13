@@ -322,3 +322,43 @@ CREATE TABLE IF NOT EXISTS buddy_reports (
     INDEX idx_reported (reported_id),
     INDEX idx_status (status)
 );
+
+-- ============================================
+-- v4.0 – Notification & Reminder System
+-- ============================================
+
+-- Notifications Table (in-app notifications)
+CREATE TABLE IF NOT EXISTS notifications (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    type ENUM('deadline_24h', 'deadline_1h', 'overdue', 'study_reminder', 'streak_risk') NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    message TEXT NOT NULL,
+    reference_id INT DEFAULT NULL COMMENT 'Optional task or session ID',
+    reference_type ENUM('task', 'session', 'general') DEFAULT 'general',
+    is_read TINYINT(1) DEFAULT 0,
+    is_dismissed TINYINT(1) DEFAULT 0,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_user_unread (user_id, is_read, is_dismissed),
+    INDEX idx_user_type_ref (user_id, type, reference_id),
+    INDEX idx_created_at (created_at)
+);
+
+-- Notification Preferences (per-user toggles)
+CREATE TABLE IF NOT EXISTS notification_preferences (
+    user_id INT PRIMARY KEY,
+    deadline_24h TINYINT(1) DEFAULT 1,
+    deadline_1h TINYINT(1) DEFAULT 1,
+    overdue_alerts TINYINT(1) DEFAULT 1,
+    study_reminders TINYINT(1) DEFAULT 1,
+    streak_alerts TINYINT(1) DEFAULT 1,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+-- ============================================
+-- Migration queries for v4.0 (Notifications):
+-- ============================================
+-- CREATE TABLE IF NOT EXISTS notifications (...);
+-- CREATE TABLE IF NOT EXISTS notification_preferences (...);
