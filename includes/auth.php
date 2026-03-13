@@ -28,12 +28,15 @@ function requireLogin() {
         header("Location: " . BASE_URL . "auth/login.php?redirect=" . urlencode($_SERVER['REQUEST_URI']));
         exit();
     }
-    // Session timeout check (2 hours)
-    if (isset($_SESSION['logged_in_at']) && (time() - $_SESSION['logged_in_at']) > 7200) {
+    // Idle-based session timeout (2 hours of inactivity)
+    $timeout = 7200; // 2 hours in seconds
+    if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity']) > $timeout) {
         secureLogout();
-        header("Location: " . BASE_URL . "auth/login.php?message=" . urlencode('Session expired. Please login again.'));
+        header("Location: " . BASE_URL . "auth/login.php?message=" . urlencode('Session expired due to inactivity. Please login again.'));
         exit();
     }
+    // Refresh activity timestamp on every authenticated page load
+    $_SESSION['last_activity'] = time();
 }
 
 // Require admin - redirect if not admin

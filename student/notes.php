@@ -43,7 +43,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $sub_val = $subject_id > 0 ? $subject_id : null;
                 $stmt = $conn->prepare("INSERT INTO notes (subject_id, user_id, title, content) VALUES (?, ?, ?, ?)");
                 $stmt->bind_param("iiss", $sub_val, $user_id, $title, $content);
-                if ($stmt->execute()) { $success = 'Note saved!'; }
+                if ($stmt->execute()) {
+                    $_SESSION['message'] = 'Note saved!';
+                    $_SESSION['message_type'] = 'success';
+                    header('Location: notes.php');
+                    exit();
+                }
                 else { $error = 'Error saving note.'; }
             }
         }
@@ -57,7 +62,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($note_id > 0 && !empty($title)) {
             $stmt = $conn->prepare("UPDATE notes SET title = ?, content = ? WHERE id = ? AND user_id = ?");
             $stmt->bind_param("ssii", $title, $content, $note_id, $user_id);
-            if ($stmt->execute()) { $success = 'Note updated!'; }
+            if ($stmt->execute()) {
+                $_SESSION['message'] = 'Note updated!';
+                $_SESSION['message_type'] = 'success';
+                header('Location: notes.php');
+                exit();
+            }
             else { $error = 'Error updating note.'; }
         }
     }
@@ -67,7 +77,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($note_id > 0) {
             $stmt = $conn->prepare("DELETE FROM notes WHERE id = ? AND user_id = ?");
             $stmt->bind_param("ii", $note_id, $user_id);
-            if ($stmt->execute()) { $success = 'Note deleted!'; }
+            if ($stmt->execute()) {
+                $_SESSION['message'] = 'Note deleted!';
+                $_SESSION['message_type'] = 'success';
+                header('Location: notes.php');
+                exit();
+            }
             else { $error = 'Error deleting note.'; }
         }
     }
@@ -185,7 +200,7 @@ $total_notes = $total_stmt->get_result()->fetch_assoc()['c'];
                             </div>
                         </div>
                         <p class="text-muted mb-2" style="font-size: 12.5px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">
-                            <?php echo htmlspecialchars($note['content'] ?: 'No content'); ?>
+                            <?php echo htmlspecialchars(strip_tags($note['content'] ?: 'No content')); ?>
                         </p>
                         <div class="d-flex justify-content-between align-items-center" style="font-size: 11px; color: var(--text-muted);">
                             <span class="badge bg-<?php echo ($note['subject_id'] ? 'primary' : 'secondary'); ?>" style="font-size: 10px;"><?php echo htmlspecialchars($note['subject_name']); ?></span>
@@ -220,14 +235,14 @@ $total_notes = $total_stmt->get_result()->fetch_assoc()['c'];
                     <small class="text-muted ms-2" id="viewNoteDate"></small>
                 </div>
                 <hr>
-                <div id="viewNoteContent" style="white-space: pre-wrap; font-size: 14px; line-height: 1.7;"></div>
+                <div id="viewNoteContent" class="ql-snow"><div class="ql-editor" style="padding: 0; font-size: 14px; line-height: 1.7;"></div></div>
             </div>
         </div>
     </div>
 </div>
 
 <!-- Add Note Modal -->
-<div class="modal fade" id="addNoteModal" tabindex="-1">
+<div class="modal fade" id="addNoteModal" data-bs-focus="false">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
@@ -254,8 +269,9 @@ $total_notes = $total_stmt->get_result()->fetch_assoc()['c'];
                         </div>
                     </div>
                     <div class="mb-3">
-                        <label for="noteContent" class="form-label">Content</label>
-                        <textarea class="form-control" id="noteContent" name="content" rows="10" placeholder="Write your notes here..."></textarea>
+                        <label class="form-label">Content</label>
+                        <div id="addNoteEditor" class="quill-editor"></div>
+                        <input type="hidden" id="noteContent" name="content">
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -268,7 +284,7 @@ $total_notes = $total_stmt->get_result()->fetch_assoc()['c'];
 </div>
 
 <!-- Edit Note Modal -->
-<div class="modal fade" id="editNoteModal" tabindex="-1">
+<div class="modal fade" id="editNoteModal" data-bs-focus="false">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header">
@@ -285,8 +301,9 @@ $total_notes = $total_stmt->get_result()->fetch_assoc()['c'];
                         <input type="text" class="form-control" id="editNoteTitle" name="title" required>
                     </div>
                     <div class="mb-3">
-                        <label for="editNoteContent" class="form-label">Content</label>
-                        <textarea class="form-control" id="editNoteContent" name="content" rows="10"></textarea>
+                        <label class="form-label">Content</label>
+                        <div id="editNoteEditor" class="quill-editor"></div>
+                        <input type="hidden" id="editNoteContent" name="content">
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -298,20 +315,189 @@ $total_notes = $total_stmt->get_result()->fetch_assoc()['c'];
     </div>
 </div>
 
+<!-- Quill.js Rich Text Editor -->
+<link href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
+
+<style>
+/* ---- Quill Editor Styling ---- */
+.ql-tooltip {
+    z-index: 1060 !important;
+    position: fixed !important;
+    left: 50% !important;
+    top: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.2) !important;
+    border-radius: 8px !important;
+    padding: 10px 14px !important;
+    background: var(--bg-card, #fff) !important;
+    border: 1px solid var(--border-color, #e2e8f0) !important;
+}
+.ql-tooltip input[type="text"] {
+    border: 1px solid var(--border-color, #e2e8f0) !important;
+    border-radius: 6px !important;
+    padding: 4px 8px !important;
+    font-size: 13px !important;
+    color: var(--text-primary, #1e293b) !important;
+    background: var(--bg-card, #fff) !important;
+    width: 240px !important;
+}
+.ql-tooltip a.ql-action,
+.ql-tooltip a.ql-remove {
+    color: var(--primary, #16a34a) !important;
+    font-size: 12px !important;
+}
+[data-theme="dark"] .ql-tooltip {
+    background: var(--bg-card) !important;
+    border-color: var(--border-color) !important;
+    color: var(--text-primary) !important;
+}
+[data-theme="dark"] .ql-tooltip input[type="text"] {
+    background: var(--bg-body) !important;
+    border-color: var(--border-color) !important;
+    color: var(--text-primary) !important;
+}
+.quill-editor {
+    min-height: 220px;
+    background: var(--bg-card, #fff);
+    border-radius: 0 0 8px 8px;
+    font-size: 14px;
+}
+.quill-editor .ql-editor {
+    min-height: 200px;
+    font-size: 14px;
+    line-height: 1.7;
+    color: var(--text-primary, #1e293b);
+}
+.quill-editor .ql-editor.ql-blank::before {
+    font-style: normal;
+    color: var(--text-muted, #94a3b8);
+}
+.ql-toolbar.ql-snow {
+    border-radius: 8px 8px 0 0;
+    border-color: var(--border-color, #e2e8f0);
+    background: var(--bg-secondary, #f8fafc);
+}
+.ql-container.ql-snow {
+    border-color: var(--border-color, #e2e8f0);
+    border-radius: 0 0 8px 8px;
+}
+/* Dark mode overrides */
+[data-theme="dark"] .quill-editor { background: var(--bg-body); }
+[data-theme="dark"] .quill-editor .ql-editor { color: var(--text-primary); }
+[data-theme="dark"] .ql-toolbar.ql-snow { background: var(--bg-secondary); border-color: var(--border-color); }
+[data-theme="dark"] .ql-container.ql-snow { border-color: var(--border-color); }
+[data-theme="dark"] .ql-toolbar .ql-stroke { stroke: var(--text-secondary) !important; }
+[data-theme="dark"] .ql-toolbar .ql-fill { fill: var(--text-secondary) !important; }
+[data-theme="dark"] .ql-toolbar .ql-picker-label { color: var(--text-secondary) !important; }
+[data-theme="dark"] .ql-toolbar .ql-picker-options { background: var(--bg-card); border-color: var(--border-color); }
+[data-theme="dark"] .ql-toolbar .ql-picker-item { color: var(--text-primary); }
+[data-theme="dark"] .ql-toolbar button:hover .ql-stroke,
+[data-theme="dark"] .ql-toolbar .ql-picker-label:hover .ql-stroke { stroke: var(--primary) !important; }
+[data-theme="dark"] .ql-toolbar button:hover .ql-fill { fill: var(--primary) !important; }
+[data-theme="dark"] .ql-toolbar button.ql-active .ql-stroke { stroke: var(--primary) !important; }
+[data-theme="dark"] .ql-toolbar button.ql-active .ql-fill { fill: var(--primary) !important; }
+[data-theme="dark"] .ql-editor.ql-blank::before { color: var(--text-muted); }
+
+/* View note content styling */
+#viewNoteContent .ql-editor h1, #viewNoteContent .ql-editor h2, #viewNoteContent .ql-editor h3 { margin-top: 0.8em; margin-bottom: 0.4em; }
+#viewNoteContent .ql-editor blockquote { border-left: 3px solid var(--primary, #16a34a); padding-left: 12px; color: var(--text-muted); }
+#viewNoteContent .ql-editor pre.ql-syntax { background: var(--bg-secondary, #f1f5f9); padding: 12px; border-radius: 8px; overflow-x: auto; }
+#viewNoteContent .ql-editor img { max-width: 100%; height: auto; border-radius: 8px; }
+</style>
+
 <script>
+// ---- Quill Editor Setup ----
+const quillToolbar = [
+    [{ 'header': [1, 2, 3, false] }],
+    ['bold', 'italic', 'underline', 'strike'],
+    [{ 'color': [] }, { 'background': [] }],
+    [{ 'list': 'ordered' }, { 'list': 'bullet' }],
+    ['blockquote', 'code-block'],
+    [{ 'align': [] }],
+    ['link', 'image'],
+    ['clean']
+];
+
+let addQuill, editQuill;
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize Add Note editor
+    addQuill = new Quill('#addNoteEditor', {
+        theme: 'snow',
+        placeholder: 'Write your notes here...',
+        modules: { toolbar: quillToolbar }
+    });
+
+    // Initialize Edit Note editor
+    editQuill = new Quill('#editNoteEditor', {
+        theme: 'snow',
+        placeholder: 'Edit your note...',
+        modules: { toolbar: quillToolbar }
+    });
+
+    // Sync Quill content to hidden inputs on form submit
+    const addForm = document.querySelector('#addNoteModal form');
+    if (addForm) {
+        addForm.addEventListener('submit', function() {
+            const html = addQuill.root.innerHTML;
+            document.getElementById('noteContent').value = (html === '<p><br></p>') ? '' : html;
+        });
+    }
+
+    const editForm = document.querySelector('#editNoteModal form');
+    if (editForm) {
+        editForm.addEventListener('submit', function() {
+            const html = editQuill.root.innerHTML;
+            document.getElementById('editNoteContent').value = (html === '<p><br></p>') ? '' : html;
+        });
+    }
+
+    // Clear editor when add modal is opened
+    document.getElementById('addNoteModal')?.addEventListener('show.bs.modal', function() {
+        addQuill.setContents([]);
+    });
+});
+
 function viewNote(note) {
     document.getElementById('viewNoteTitle').textContent = note.title;
     document.getElementById('viewNoteSubject').textContent = note.subject_name || 'General';
     document.getElementById('viewNoteSubject').className = 'badge bg-' + (note.subject_id ? 'primary' : 'secondary');
     document.getElementById('viewNoteDate').textContent = 'Updated: ' + note.updated_at;
-    document.getElementById('viewNoteContent').textContent = note.content || 'No content.';
+
+    const contentEl = document.querySelector('#viewNoteContent .ql-editor');
+    const raw = note.content || '';
+
+    if (!raw || raw.trim() === '') {
+        contentEl.innerHTML = '<p style="color: var(--text-muted);"><em>No content.</em></p>';
+    } else if (raw.charAt(0) === '<') {
+        // HTML content from Quill
+        contentEl.innerHTML = raw;
+    } else {
+        // Legacy plain text / markdown content
+        contentEl.innerHTML = '<p>' + raw.replace(/\n/g, '</p><p>') + '</p>';
+    }
+
+    // Sanitize: remove dangerous tags
+    contentEl.querySelectorAll('script,iframe,object,embed,form').forEach(el => el.remove());
+
     new bootstrap.Modal(document.getElementById('viewNoteModal')).show();
 }
 
 function fillEditNote(note) {
     document.getElementById('editNoteId').value = note.id;
     document.getElementById('editNoteTitle').value = note.title;
-    document.getElementById('editNoteContent').value = note.content || '';
+
+    const raw = note.content || '';
+    if (editQuill) {
+        if (raw.charAt(0) === '<') {
+            // HTML content — load into Quill via clipboard
+            editQuill.root.innerHTML = raw;
+        } else {
+            // Legacy plain text — insert as text
+            editQuill.setText(raw);
+        }
+    }
 }
 </script>
 

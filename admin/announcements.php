@@ -32,7 +32,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $stmt = $conn->prepare("INSERT INTO announcements (admin_id, title, content, priority, expires_at) VALUES (?, ?, ?, ?, ?)");
             $stmt->bind_param("issss", $user_id, $title, $content, $priority, $expires);
-            if ($stmt->execute()) { $success = 'Announcement published!'; }
+            if ($stmt->execute()) {
+                $_SESSION['message'] = 'Announcement published!';
+                $_SESSION['message_type'] = 'success';
+                header('Location: announcements.php');
+                exit();
+            }
             else { $error = 'Error creating announcement.'; }
         }
     }
@@ -47,7 +52,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($ann_id > 0 && !empty($title) && !empty($content)) {
             $stmt = $conn->prepare("UPDATE announcements SET title = ?, content = ?, priority = ?, expires_at = ? WHERE id = ?");
             $stmt->bind_param("ssssi", $title, $content, $priority, $expires, $ann_id);
-            if ($stmt->execute()) { $success = 'Announcement updated!'; }
+            if ($stmt->execute()) {
+                $_SESSION['message'] = 'Announcement updated!';
+                $_SESSION['message_type'] = 'success';
+                header('Location: announcements.php');
+                exit();
+            }
             else { $error = 'Error updating announcement.'; }
         }
     }
@@ -57,7 +67,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($ann_id > 0) {
             $stmt = $conn->prepare("DELETE FROM announcements WHERE id = ?");
             $stmt->bind_param("i", $ann_id);
-            if ($stmt->execute()) { $success = 'Announcement deleted!'; }
+            if ($stmt->execute()) {
+                $_SESSION['message'] = 'Announcement deleted!';
+                $_SESSION['message_type'] = 'success';
+                header('Location: announcements.php');
+                exit();
+            }
             else { $error = 'Error deleting announcement.'; }
         }
     }

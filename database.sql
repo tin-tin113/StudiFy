@@ -76,7 +76,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     is_recurring TINYINT(1) DEFAULT 0,
     recurrence_type ENUM('Daily', 'Weekly', 'Monthly') DEFAULT NULL,
     recurrence_end DATE DEFAULT NULL,
-    position INT DEFAULT 0 COMMENT 'For Kanban ordering',
+    position INT DEFAULT 0 COMMENT 'Reserved for future task ordering',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -211,16 +211,9 @@ CREATE TABLE IF NOT EXISTS activity_log (
     INDEX idx_created_at (created_at)
 );
 
--- Login Attempts Tracking (standalone table for detailed logging)
-CREATE TABLE IF NOT EXISTS login_attempts (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    email VARCHAR(255) NOT NULL,
-    ip_address VARCHAR(45) DEFAULT NULL,
-    attempted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    success TINYINT(1) DEFAULT 0,
-    INDEX idx_email (email),
-    INDEX idx_attempted_at (attempted_at)
-);
+-- Note: Login attempts are tracked via the users.login_attempts column
+-- and users.locked_until for brute-force lockout. A standalone login_attempts
+-- table is not used in the current implementation.
 
 -- ============================================
 -- Migration queries for existing databases:

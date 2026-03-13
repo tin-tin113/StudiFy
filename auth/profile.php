@@ -30,7 +30,19 @@ if (!is_dir($upload_dir)) {
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     requireCSRF();
-    
+
+    // Handle remove photo action
+    if (isset($_POST['remove_photo'])) {
+        if ($user['profile_photo'] && file_exists(__DIR__ . '/../' . $user['profile_photo'])) {
+            unlink(__DIR__ . '/../' . $user['profile_photo']);
+        }
+        $stmt = $conn->prepare("UPDATE users SET profile_photo = NULL WHERE id = ?");
+        $stmt->bind_param("i", $user_id);
+        $stmt->execute();
+        $success = 'Profile photo removed.';
+        $user = getUserInfo($user_id, $conn);
+    } else {
+    // Handle profile update
     $name = sanitize($_POST['name'] ?? '');
     $email = sanitize($_POST['email'] ?? '');
     $course = sanitize($_POST['course'] ?? '');
@@ -82,8 +94,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         if (empty($error)) {
             if (!empty($new_password)) {
-                if (strlen($new_password) < 6) {
-                    $error = 'New password must be at least 6 characters long.';
+                if (strlen($new_password) < 8) {
+                    $error = 'New password must be at least 8 characters with at least one uppercase letter and one number.';
+                } elseif (!preg_match('/[A-Z]/', $new_password) || !preg_match('/[0-9]/', $new_password)) {
+                    $error = 'Password must contain at least one uppercase letter and one number.';
                 } elseif ($new_password !== $confirm_password) {
                     $error = 'Passwords do not match.';
                 } else {
@@ -108,19 +122,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     }
-}
-
-// Handle remove photo via POST
-if (isset($_POST['remove_photo'])) {
-    requireCSRF();
-    if ($user['profile_photo'] && file_exists(__DIR__ . '/../' . $user['profile_photo'])) {
-        unlink(__DIR__ . '/../' . $user['profile_photo']);
-    }
-    $stmt = $conn->prepare("UPDATE users SET profile_photo = NULL WHERE id = ?");
-    $stmt->bind_param("i", $user_id);
-    $stmt->execute();
-    $success = 'Profile photo removed.';
-    $user = getUserInfo($user_id, $conn);
+    } // end else (profile update)
 }
 ?>
 <?php include '../includes/header.php'; ?>
@@ -236,12 +238,12 @@ if (isset($_POST['remove_photo'])) {
                             <?php endif; ?>
 
                             <hr class="my-4">
-                            <h6 class="fw-700 mb-3"><i class="fas fa-lock text-primary me-2"></i> Change Password <small class="text-muted fw-500">(optional)</small></h6>
+                            <h6 class="fw-700 mb-3"><i class="fas fa-lock text-primary me-2"></i> Change Password <small class="text-muted fw-500"></small></h6>
 
                             <div class="row">
                                 <div class="col-md-6 mb-3">
                                     <label for="new_password" class="form-label">New Password</label>
-                                    <input type="password" class="form-control" id="new_password" name="new_password" 
+                                    <input type="password" class="form-control" id="new_password" name="new_password"
                                            placeholder="Leave blank to keep current">
                                 </div>
                                 <div class="col-md-6 mb-3">

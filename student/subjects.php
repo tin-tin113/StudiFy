@@ -19,6 +19,17 @@ $semester_id = intval($_GET['semester_id'] ?? 0);
 $error = '';
 $success = '';
 
+// Auto-select active semester if none specified
+if ($semester_id <= 0) {
+    $active_sem = $conn->prepare("SELECT id FROM semesters WHERE user_id = ? AND is_active = 1 LIMIT 1");
+    $active_sem->bind_param("i", $user_id);
+    $active_sem->execute();
+    $active_result = $active_sem->get_result()->fetch_assoc();
+    if ($active_result) {
+        $semester_id = intval($active_result['id']);
+    }
+}
+
 // Verify semester belongs to user
 if ($semester_id > 0) {
     $check_query = "SELECT id FROM semesters WHERE id = ? AND user_id = ?";
@@ -53,7 +64,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $stmt = $conn->prepare("INSERT INTO subjects (semester_id, name, instructor_name) VALUES (?, ?, ?)");
                 $stmt->bind_param("iss", $sem_id, $name, $instructor);
-                if ($stmt->execute()) { $success = 'Subject added successfully!'; }
+                if ($stmt->execute()) {
+                    $_SESSION['message'] = 'Subject added successfully!';
+                    $_SESSION['message_type'] = 'success';
+                    header('Location: subjects.php');
+                    exit();
+                }
                 else { $error = 'Error adding subject.'; }
             }
         }
@@ -74,7 +90,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $stmt = $conn->prepare("UPDATE subjects SET name = ?, instructor_name = ? WHERE id = ?");
                 $stmt->bind_param("ssi", $name, $instructor, $subj_id);
-                if ($stmt->execute()) { $success = 'Subject updated!'; }
+                if ($stmt->execute()) {
+                    $_SESSION['message'] = 'Subject updated!';
+                    $_SESSION['message_type'] = 'success';
+                    header('Location: subjects.php');
+                    exit();
+                }
                 else { $error = 'Error updating subject.'; }
             }
         }
@@ -84,7 +105,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             // Verify subject belongs to current user before deleting
             $stmt = $conn->prepare("DELETE s FROM subjects s JOIN semesters sem ON s.semester_id = sem.id WHERE s.id = ? AND sem.user_id = ?");
             $stmt->bind_param("ii", $subj_id, $user_id);
-            if ($stmt->execute()) { $success = 'Subject deleted!'; }
+            if ($stmt->execute()) {
+                $_SESSION['message'] = 'Subject deleted!';
+                $_SESSION['message_type'] = 'success';
+                header('Location: subjects.php');
+                exit();
+            }
             else { $error = 'Error deleting subject.'; }
         }
     }
@@ -140,7 +166,10 @@ if ($semester_id > 0) {
             <?php if (count($subjects) > 0): ?>
                 <div class="row g-4">
                     <?php foreach ($subjects as $subject): 
-                        $task_count = count(getSubjectTasks($subject['id'], $conn));
+                        $task_stats = getSubjectTaskStats($subject['id'], $conn);
+                        $task_count = intval($task_stats['total']);
+                        $task_done = intval($task_stats['completed']);
+                        $task_pct = $task_count > 0 ? round(($task_done / $task_count) * 100) : 0;
                     ?>
                     <div class="col-md-6 col-lg-4">
                         <div class="card h-100">
@@ -158,7 +187,13 @@ if ($semester_id > 0) {
                                 </div>
 
                                 <div class="d-flex align-items-center gap-2 mb-3">
-                                    <span class="badge bg-info"><?php echo $task_count; ?> Task<?php echo $task_count !== 1 ? 's' : ''; ?></span>
+                                    <span class="badge bg-info"><?php echo $task_done; ?>/<?php echo $task_count; ?> Task<?php echo $task_count !== 1 ? 's' : ''; ?></span>
+                                    <?php if ($task_count > 0): ?>
+                                        <div class="flex-grow-1" style="height: 6px; background: var(--bg-secondary); border-radius: 3px; overflow: hidden;">
+                                            <div style="width: <?php echo $task_pct; ?>%; height: 100%; background: <?php echo $task_pct >= 100 ? 'var(--success)' : 'var(--primary)'; ?>; border-radius: 3px; transition: width 0.3s;"></div>
+                                        </div>
+                                        <span class="text-muted" style="font-size: 11px; min-width: 32px;"><?php echo $task_pct; ?>%</span>
+                                    <?php endif; ?>
                                 </div>
 
                                 <div class="d-flex gap-2">

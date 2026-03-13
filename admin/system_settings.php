@@ -29,7 +29,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt = $conn->prepare("UPDATE users SET password = ? WHERE id = ?");
             $stmt->bind_param("si", $hashed, $target_id);
             if ($stmt->execute()) {
-                $success = 'Password reset successfully!';
+                $_SESSION['message'] = 'Password reset successfully!';
+                $_SESSION['message_type'] = 'success';
+                header('Location: system_settings.php');
+                exit();
             } else {
                 $error = 'Error resetting password.';
             }
@@ -45,7 +48,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->bind_param("i", $days);
         if ($stmt->execute()) {
             $deleted = $stmt->affected_rows;
-            $success = "Cleaned up $deleted completed task(s) older than $days days.";
+            $_SESSION['message'] = "Cleaned up $deleted completed task(s) older than $days days.";
+            $_SESSION['message_type'] = 'success';
+            header('Location: system_settings.php');
+            exit();
         } else {
             $error = 'Error performing cleanup.';
         }
@@ -58,7 +64,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt->bind_param("i", $days);
         if ($stmt->execute()) {
             $deleted = $stmt->affected_rows;
-            $success = "Cleaned up $deleted study session(s) older than $days days.";
+            $_SESSION['message'] = "Cleaned up $deleted study session(s) older than $days days.";
+            $_SESSION['message_type'] = 'success';
+            header('Location: system_settings.php');
+            exit();
         } else {
             $error = 'Error performing cleanup.';
         }

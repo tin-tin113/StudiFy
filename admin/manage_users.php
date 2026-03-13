@@ -14,9 +14,11 @@ requireAdmin();
 $page_title = 'Manage Users';
 $user_id = getCurrentUserId();
 
-// Handle user deletion
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete_user') {
+// Handle POST actions
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     requireCSRF();
+
+if ($_POST['action'] === 'delete_user') {
     $delete_id = intval($_POST['user_id'] ?? 0);
     if ($delete_id > 0 && $delete_id !== $user_id) {
         // Prevent deleting the last admin
@@ -29,6 +31,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             $_SESSION['message'] = 'Cannot delete the last admin account.';
             $_SESSION['message_type'] = 'error';
         } else {
+            // Clean up avatar file from disk before DB delete
+            $avatar_q = $conn->prepare("SELECT profile_photo FROM users WHERE id = ?");
+            $avatar_q->bind_param("i", $delete_id);
+            $avatar_q->execute();
+            $avatar_row = $avatar_q->get_result()->fetch_assoc();
+            if ($avatar_row && !empty($avatar_row['profile_photo'])) {
+                $avatar_path = __DIR__ . '/../' . $avatar_row['profile_photo'];
+                if (file_exists($avatar_path)) {
+                    unlink($avatar_path);
+                }
+            }
+
             $stmt = $conn->prepare("DELETE FROM users WHERE id = ?");
             $stmt->bind_param("i", $delete_id);
             if ($stmt->execute()) {
@@ -42,11 +56,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         header("Location: manage_users.php");
         exit();
     }
-}
-
-// Handle role change
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'change_role') {
-    requireCSRF();
+} elseif ($_POST['action'] === 'change_role') {
     $target_id = intval($_POST['user_id'] ?? 0);
     $new_role = ($_POST['new_role'] === 'admin') ? 'admin' : 'student';
     if ($target_id > 0 && $target_id !== $user_id) {
@@ -73,6 +83,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         exit();
     }
 }
+} // end POST actions
 
 $users = getAllUsers($conn);
 

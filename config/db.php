@@ -93,8 +93,9 @@ function requireCSRF() {
         header("Location: " . ($_SERVER['HTTP_REFERER'] ?? 'index.php'));
         exit();
     }
-    // Rotate token after successful validation to prevent replay attacks
-    unset($_SESSION['csrf_token']);
+    // Token persists for the session lifetime.
+    // It is regenerated naturally on login (session_regenerate_id) and logout (session destroy).
+    // This avoids breaking multi-tab usage, back-button navigation, and AJAX after form posts.
 }
 
 // Function to redirect with message

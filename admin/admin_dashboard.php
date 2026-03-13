@@ -50,14 +50,12 @@ $recent_users = [];
 $result = $conn->query("SELECT * FROM users ORDER BY created_at DESC LIMIT 5");
 while ($row = $result->fetch_assoc()) $recent_users[] = $row;
 
-// Top active users (most tasks)
+// Top active users (most tasks) — uses direct user_id FK on tasks
 $top_users = [];
 $result = $conn->query("SELECT u.name, u.email, COUNT(t.id) as task_count, 
                          SUM(CASE WHEN t.status = 'Completed' THEN 1 ELSE 0 END) as completed
                          FROM users u 
-                         LEFT JOIN semesters s ON u.id = s.user_id 
-                         LEFT JOIN subjects sub ON s.id = sub.semester_id 
-                         LEFT JOIN tasks t ON sub.id = t.subject_id 
+                         LEFT JOIN tasks t ON u.id = t.user_id AND t.parent_id IS NULL
                          WHERE u.role = 'student'
                          GROUP BY u.id ORDER BY task_count DESC LIMIT 5");
 while ($row = $result->fetch_assoc()) $top_users[] = $row;

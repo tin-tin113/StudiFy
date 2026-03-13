@@ -25,6 +25,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WI
         exit();
     }
 
+    // Mark task complete endpoint
+    if (isset($_POST['action']) && $_POST['action'] === 'complete_task') {
+        $task_id = intval($_POST['task_id'] ?? 0);
+        if ($task_id > 0) {
+            $check = $conn->prepare("SELECT id, title, status FROM tasks WHERE id = ? AND user_id = ?");
+            $check->bind_param("ii", $task_id, $user_id);
+            $check->execute();
+            $task_row = $check->get_result()->fetch_assoc();
+            if ($task_row && $task_row['status'] !== 'Completed') {
+                $upd = $conn->prepare("UPDATE tasks SET status = 'Completed' WHERE id = ? AND user_id = ?");
+                $upd->bind_param("ii", $task_id, $user_id);
+                $upd->execute();
+                // Also complete any subtasks
+                $sub = $conn->prepare("UPDATE tasks SET status = 'Completed' WHERE parent_id = ? AND user_id = ?");
+                $sub->bind_param("ii", $task_id, $user_id);
+                $sub->execute();
+                echo json_encode(['success' => true, 'message' => 'Task marked as completed!', 'task_title' => $task_row['title']]);
+            } else if ($task_row && $task_row['status'] === 'Completed') {
+                echo json_encode(['success' => true, 'message' => 'Task is already completed', 'already' => true]);
+            } else {
+                echo json_encode(['success' => false, 'message' => 'Task not found']);
+            }
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Invalid task ID']);
+        }
+        exit();
+    }
+
     // Session history endpoint
     if (isset($_POST['action']) && $_POST['action'] === 'get_history') {
         $page = max(1, intval($_POST['page'] ?? 1));
@@ -238,18 +266,23 @@ for ($i = 6; $i >= 0; $i--) {
 
                         <!-- Task/Subject Linking -->
                         <div class="pom-link-bar mt-4">
-                            <div class="row g-2 justify-content-center">
-                                <div class="col-auto" style="min-width: 180px;">
-                                    <select class="form-select form-select-sm" id="pomSubject" onchange="onSubjectChange()">
-                                        <option value="">📚 No subject</option>
+                            <div class="pom-link-heading mb-2">
+                                <i class="fas fa-link"></i> Link to Subject / Task
+                            </div>
+                            <div class="row g-2">
+                                <div class="col-sm-6">
+                                    <label class="pom-link-label" for="pomSubject"><i class="fas fa-book"></i> Subject</label>
+                                    <select class="form-select" id="pomSubject" onchange="onSubjectChange()">
+                                        <option value="">— No subject —</option>
                                         <?php foreach ($user_subjects as $subj): ?>
                                         <option value="<?php echo $subj['id']; ?>"><?php echo htmlspecialchars($subj['name']); ?></option>
                                         <?php endforeach; ?>
                                     </select>
                                 </div>
-                                <div class="col-auto" style="min-width: 220px;">
-                                    <select class="form-select form-select-sm" id="pomTask">
-                                        <option value="">📝 No task</option>
+                                <div class="col-sm-6">
+                                    <label class="pom-link-label" for="pomTask"><i class="fas fa-tasks"></i> Task</label>
+                                    <select class="form-select" id="pomTask">
+                                        <option value="">— No task —</option>
                                         <?php foreach ($user_tasks as $task): ?>
                                         <option value="<?php echo $task['id']; ?>" data-subject="<?php echo htmlspecialchars($task['subject_name']); ?>">
                                             <?php echo htmlspecialchars($task['title']); ?> — <?php echo htmlspecialchars($task['subject_name']); ?>
@@ -532,6 +565,25 @@ for ($i = 6; $i >= 0; $i--) {
     </div>
 </div>
 
+<!-- Task Completion Prompt -->
+<div id="taskCompletePrompt" class="pom-task-prompt" style="display: none;">
+    <div class="pom-task-prompt-content">
+        <div class="pom-task-prompt-icon">✅</div>
+        <h4>Session Complete!</h4>
+        <p class="text-muted mb-2" style="font-size: 13px;">You were working on:</p>
+        <div class="pom-task-prompt-name" id="promptTaskName"></div>
+        <p class="text-muted mt-3" style="font-size: 13px;">Is this task finished?</p>
+        <div class="d-flex justify-content-center gap-2 mt-3">
+            <button class="btn btn-success px-4" onclick="confirmCompleteTask()">
+                <i class="fas fa-check-circle"></i> Yes, Mark Complete
+            </button>
+            <button class="btn btn-outline-secondary px-4" onclick="dismissTaskPrompt()">
+                <i class="fas fa-clock"></i> Not Yet
+            </button>
+        </div>
+    </div>
+</div>
+
 <!-- Hidden fallback form -->
 <form id="sessionForm" method="POST" style="display:none;">
     <input type="hidden" name="save_session" value="1">
@@ -805,6 +857,9 @@ function pomodoroStart() {
                 saveSession(parseInt(document.getElementById('focusTime').value), 'Focus');
                 updateDailyGoal();
 
+                // Ask user if they want to mark the linked task as complete
+                showTaskCompletePrompt();
+
                 // Determine break type: long break every 4 sessions
                 const isLongBreak = pomSessionCount % LONG_BREAK_INTERVAL === 0;
                 pomIsBreak = true;
@@ -940,6 +995,67 @@ function applyAmbiancePreset(preset) {
         const names = { cozy: 'Cozy', nature: 'Nature', cafe: 'Study Café', storm: 'Storm', zen: 'Zen' };
         StudifyToast.info('🎵 ' + (names[preset] || preset) + ' ambiance activated');
     }
+}
+
+// ---- Task Completion Prompt ----
+let pendingCompleteTaskId = null;
+let pendingCompleteTaskTitle = '';
+
+function showTaskCompletePrompt() {
+    const taskSelect = document.getElementById('pomTask');
+    const taskId = taskSelect?.value;
+    if (!taskId) return; // No task linked, skip
+
+    const taskName = taskSelect.options[taskSelect.selectedIndex]?.text || 'this task';
+    pendingCompleteTaskId = taskId;
+    pendingCompleteTaskTitle = taskName;
+
+    document.getElementById('promptTaskName').textContent = taskName;
+    document.getElementById('taskCompletePrompt').style.display = 'flex';
+}
+
+function dismissTaskPrompt() {
+    document.getElementById('taskCompletePrompt').style.display = 'none';
+    pendingCompleteTaskId = null;
+    pendingCompleteTaskTitle = '';
+}
+
+function confirmCompleteTask() {
+    if (!pendingCompleteTaskId) return;
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+    const formData = new FormData();
+    formData.append('action', 'complete_task');
+    formData.append('task_id', pendingCompleteTaskId);
+    formData.append('csrf_token', csrfToken);
+
+    fetch(window.location.href, {
+        method: 'POST',
+        headers: { 'X-Requested-With': 'XMLHttpRequest' },
+        body: formData
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.success) {
+            // Remove the completed task from the dropdown
+            const taskSelect = document.getElementById('pomTask');
+            const option = taskSelect.querySelector('option[value="' + pendingCompleteTaskId + '"]');
+            if (option) option.remove();
+            taskSelect.value = '';
+            saveSettings();
+
+            if (typeof StudifyToast !== 'undefined') {
+                StudifyToast.success('🎉 "' + (data.task_title || pendingCompleteTaskTitle) + '" marked as complete!');
+            }
+        } else {
+            if (typeof StudifyToast !== 'undefined') StudifyToast.error(data.message || 'Could not complete task');
+        }
+    })
+    .catch(() => {
+        if (typeof StudifyToast !== 'undefined') StudifyToast.error('Network error. Please try again.');
+    })
+    .finally(() => {
+        dismissTaskPrompt();
+    });
 }
 
 // ---- Session Save (AJAX with CSRF) ----

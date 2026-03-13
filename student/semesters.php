@@ -31,7 +31,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $insert_query = "INSERT INTO semesters (user_id, name) VALUES (?, ?)";
             $stmt = $conn->prepare($insert_query);
             $stmt->bind_param("is", $user_id, $name);
-            if ($stmt->execute()) { $success = 'Semester added successfully!'; }
+            if ($stmt->execute()) {
+                $_SESSION['message'] = 'Semester added successfully!';
+                $_SESSION['message_type'] = 'success';
+                header('Location: semesters.php');
+                exit();
+            }
             else { $error = 'Error adding semester.'; }
         }
     } elseif ($action === 'activate') {
@@ -41,7 +46,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $deactivate->execute();
         $stmt = $conn->prepare("UPDATE semesters SET is_active = 1 WHERE id = ? AND user_id = ?");
         $stmt->bind_param("ii", $sem_id, $user_id);
-        if ($stmt->execute()) { $success = 'Semester activated!'; }
+        if ($stmt->execute()) {
+            $_SESSION['message'] = 'Semester activated!';
+            $_SESSION['message_type'] = 'success';
+            header('Location: semesters.php');
+            exit();
+        }
+    } elseif ($action === 'edit') {
+        $sem_id = intval($_POST['semester_id'] ?? 0);
+        $name = sanitize($_POST['name'] ?? '');
+        if (empty($name) || $sem_id <= 0) {
+            $error = 'Semester name is required.';
+        } else {
+            $stmt = $conn->prepare("UPDATE semesters SET name = ? WHERE id = ? AND user_id = ?");
+            $stmt->bind_param("sii", $name, $sem_id, $user_id);
+            if ($stmt->execute() && $stmt->affected_rows >= 0) {
+                $_SESSION['message'] = 'Semester renamed!';
+                $_SESSION['message_type'] = 'success';
+                header('Location: semesters.php');
+                exit();
+            }
+            else { $error = 'Error renaming semester.'; }
+        }
     } elseif ($action === 'delete') {
         $sem_id = intval($_POST['semester_id'] ?? 0);
         // Prevent deleting the active semester
@@ -54,7 +80,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         } else {
             $stmt = $conn->prepare("DELETE FROM semesters WHERE id = ? AND user_id = ?");
             $stmt->bind_param("ii", $sem_id, $user_id);
-            if ($stmt->execute()) { $success = 'Semester deleted!'; }
+            if ($stmt->execute()) {
+                $_SESSION['message'] = 'Semester deleted!';
+                $_SESSION['message_type'] = 'success';
+                header('Location: semesters.php');
+                exit();
+            }
             else { $error = 'Error deleting semester.'; }
         }
     }
@@ -117,6 +148,10 @@ $semesters = getUserSemesters($user_id, $conn);
                                 <a href="<?php echo BASE_URL; ?>student/subjects.php?semester_id=<?php echo $sem['id']; ?>" class="btn btn-sm btn-primary flex-grow-1">
                                     <i class="fas fa-eye"></i> View
                                 </a>
+                                <button class="btn btn-sm btn-warning" title="Rename" data-bs-toggle="modal" data-bs-target="#editSemesterModal"
+                                    onclick="document.getElementById('editSemId').value=<?php echo $sem['id']; ?>; document.getElementById('editSemName').value='<?php echo htmlspecialchars($sem['name'], ENT_QUOTES); ?>';">
+                                    <i class="fas fa-edit"></i>
+                                </button>
                                 <?php if (!$sem['is_active']): ?>
                                     <form method="POST" class="d-inline" onsubmit="return StudifyConfirm.form(event, 'Activate Semester', 'This will deactivate all other semesters and set this one as active.', 'info');">
                                         <?php echo getCSRFField(); ?>
@@ -163,13 +198,71 @@ $semesters = getUserSemesters($user_id, $conn);
                     <?php echo getCSRFField(); ?>
                     <input type="hidden" name="action" value="add">
                     <div class="mb-3">
+                        <label for="semPreset" class="form-label">Choose a Semester</label>
+                        <select class="form-select mb-2" id="semPreset" onchange="applySemesterPreset(this)">
+                            <option value="">— Select a preset or type your own below —</option>
+                            <optgroup label="Standard Semesters">
+                                <option value="1st Semester 2025-2026">1st Semester 2025-2026</option>
+                                <option value="2nd Semester 2025-2026">2nd Semester 2025-2026</option>
+                                <option value="1st Semester 2026-2027">1st Semester 2026-2027</option>
+                                <option value="2nd Semester 2026-2027">2nd Semester 2026-2027</option>
+                            </optgroup>
+                            <optgroup label="Summer / Midyear">
+                                <option value="Summer 2026">Summer 2026</option>
+                                <option value="Midyear 2026">Midyear 2026</option>
+                                <option value="Summer 2027">Summer 2027</option>
+                            </optgroup>
+                            <optgroup label="Trimester">
+                                <option value="1st Trimester 2025-2026">1st Trimester 2025-2026</option>
+                                <option value="2nd Trimester 2025-2026">2nd Trimester 2025-2026</option>
+                                <option value="3rd Trimester 2025-2026">3rd Trimester 2025-2026</option>
+                            </optgroup>
+                        </select>
                         <label for="name" class="form-label">Semester Name</label>
-                        <input type="text" class="form-control" id="name" name="name" placeholder="e.g., 1st Semester 2024-2025" required>
+                        <input type="text" class="form-control" id="name" name="name" placeholder="Or type a custom name..." required>
+                        <small class="text-muted"><i class="fas fa-info-circle"></i> Select a preset above or type your own semester name.</small>
                     </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                     <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Add Semester</button>
+                </div>
+            </form>
+
+            <script>
+            function applySemesterPreset(select) {
+                const nameInput = document.getElementById('name');
+                if (select.value) {
+                    nameInput.value = select.value;
+                    nameInput.focus();
+                }
+            }
+            </script>
+        </div>
+    </div>
+</div>
+
+<!-- Edit Semester Modal -->
+<div class="modal fade" id="editSemesterModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title"><i class="fas fa-edit"></i> Rename Semester</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <form method="POST">
+                <div class="modal-body">
+                    <?php echo getCSRFField(); ?>
+                    <input type="hidden" name="action" value="edit">
+                    <input type="hidden" name="semester_id" id="editSemId">
+                    <div class="mb-3">
+                        <label for="editSemName" class="form-label">Semester Name</label>
+                        <input type="text" class="form-control" id="editSemName" name="name" placeholder="e.g., 1st Semester 2024-2025" required>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary"><i class="fas fa-save"></i> Save</button>
                 </div>
             </form>
         </div>

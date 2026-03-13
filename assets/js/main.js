@@ -546,9 +546,11 @@ const GlobalSearch = {
 const KeyboardShortcuts = {
     init() {
         document.addEventListener('keydown', (e) => {
-            // Don't trigger in inputs/textareas
-            const tag = document.activeElement?.tagName;
-            const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+            // Don't trigger in inputs/textareas/contenteditable (e.g. Quill editor)
+            const el = document.activeElement;
+            const tag = el?.tagName;
+            const isInput = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT'
+                         || el?.isContentEditable || el?.closest?.('.ql-editor');
             
             // Ctrl+K / Cmd+K → Open search
             if ((e.ctrlKey || e.metaKey) && e.key === 'k') {

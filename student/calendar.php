@@ -19,6 +19,34 @@ $user_id = getCurrentUserId();
 $error = '';
 $success = '';
 
+// Handle AJAX request for drag-to-reschedule
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WITH'])) {
+    header('Content-Type: application/json');
+    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+        echo json_encode(['success' => false, 'message' => 'Invalid security token']);
+        exit();
+    }
+    $action = $_POST['action'] ?? '';
+    if ($action === 'reschedule') {
+        $task_id = intval($_POST['task_id'] ?? 0);
+        $new_deadline = $_POST['new_deadline'] ?? '';
+        if ($task_id > 0 && !empty($new_deadline)) {
+            $stmt = $conn->prepare("UPDATE tasks SET deadline = ? WHERE id = ? AND user_id = ?");
+            $stmt->bind_param("sii", $new_deadline, $task_id, $user_id);
+            if ($stmt->execute() && $stmt->affected_rows > 0) {
+                echo json_encode(['success' => true, 'message' => 'Task rescheduled!']);
+            } else {
+                echo json_encode(['success' => false, 'message' => 'Task not found or access denied.']);
+            }
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Invalid data.']);
+        }
+        exit();
+    }
+    echo json_encode(['success' => false, 'message' => 'Invalid action']);
+    exit();
+}
+
 // Handle form submission for adding a task
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'add') {
     requireCSRF();
@@ -29,19 +57,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $priority = sanitize($_POST['priority'] ?? 'Medium');
     $deadline = $_POST['deadline'] ?? '';
 
-    if (empty($title) || $subj_id <= 0 || empty($deadline)) {
-        $error = 'Title, subject, and deadline are required.';
+    if (empty($title) || empty($deadline)) {
+        $error = 'Title and deadline are required.';
     } else {
-        // Verify subject belongs to current user
-        $own_check = $conn->prepare("SELECT s.id FROM subjects s JOIN semesters sem ON s.semester_id = sem.id WHERE s.id = ? AND sem.user_id = ?");
-        $own_check->bind_param("ii", $subj_id, $user_id);
-        $own_check->execute();
-        if ($own_check->get_result()->num_rows === 0) {
-            $error = 'Subject not found or access denied.';
-        } else {
-            $stmt = $conn->prepare("INSERT INTO tasks (subject_id, title, description, type, priority, deadline) VALUES (?, ?, ?, ?, ?, ?)");
-            $stmt->bind_param("isssss", $subj_id, $title, $description, $type, $priority, $deadline);
-            if ($stmt->execute()) { $success = 'Task added successfully!'; }
+        $subj_id_val = $subj_id > 0 ? $subj_id : null;
+        // Verify subject belongs to current user (if selected)
+        if ($subj_id_val) {
+            $own_check = $conn->prepare("SELECT s.id FROM subjects s JOIN semesters sem ON s.semester_id = sem.id WHERE s.id = ? AND sem.user_id = ?");
+            $own_check->bind_param("ii", $subj_id, $user_id);
+            $own_check->execute();
+            if ($own_check->get_result()->num_rows === 0) {
+                $error = 'Subject not found or access denied.';
+            }
+        }
+        if (empty($error)) {
+            $stmt = $conn->prepare("INSERT INTO tasks (user_id, subject_id, title, description, type, priority, deadline) VALUES (?, ?, ?, ?, ?, ?, ?)");
+            $stmt->bind_param("iisssss", $user_id, $subj_id_val, $title, $description, $type, $priority, $deadline);
+            if ($stmt->execute()) {
+                $_SESSION['message'] = 'Task added successfully!';
+                $_SESSION['message_type'] = 'success';
+                header('Location: calendar.php');
+                exit();
+            }
             else { $error = 'Error adding task.'; }
         }
     }
@@ -66,7 +103,7 @@ $tasks_json = getTasksAsJSON($user_id, $conn);
         <div class="page-header">
             <h2><i class="fas fa-calendar-alt"></i> Calendar</h2>
             <div class="d-flex gap-2">
-                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addTaskCalendarModal" <?php echo count($all_subjects) === 0 ? 'disabled title="Add a subject first"' : ''; ?>>
+                <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addTaskCalendarModal">
                     <i class="fas fa-plus"></i> Add Task
                 </button>
                 <a href="tasks.php" class="btn btn-secondary">
@@ -90,6 +127,7 @@ $tasks_json = getTasksAsJSON($user_id, $conn);
                     <span style="font-size: 13px;"><i class="fas fa-circle text-danger" style="font-size: 10px;"></i> High Priority</span>
                     <span style="font-size: 13px;"><i class="fas fa-circle text-warning" style="font-size: 10px;"></i> Medium Priority</span>
                     <span style="font-size: 13px;"><i class="fas fa-circle text-success" style="font-size: 10px;"></i> Low Priority</span>
+                    <span style="font-size: 13px;"><i class="fas fa-circle" style="font-size: 10px; color: #9ca3af;"></i> Completed</span>
                 </div>
             </div>
         </div>
@@ -163,13 +201,22 @@ $tasks_json = getTasksAsJSON($user_id, $conn);
                                     <input type="text" class="form-control" id="calAddTitle" name="title" placeholder="e.g., Research Paper Draft" required>
                                 </div>
                                 <div class="col-md-4 mb-3">
-                                    <label for="calAddSubject" class="form-label">Subject</label>
-                                    <select class="form-select" id="calAddSubject" name="subject_id" required>
-                                        <option value="">Select Subject</option>
-                                        <?php foreach ($all_subjects as $sub): ?>
+                                    <label for="calAddSubject" class="form-label">Subject <small class="text-muted">(optional)</small></label>
+                                    <select class="form-select" id="calAddSubject" name="subject_id">
+                                        <option value="">— None —</option>
+                                        <?php
+                                        $subjects_by_sem = [];
+                                        foreach ($all_subjects as $sub) {
+                                            $subjects_by_sem[$sub['semester_name']][] = $sub;
+                                        }
+                                        foreach ($subjects_by_sem as $sem_name => $subs): ?>
+                                        <optgroup label="📅 <?php echo htmlspecialchars($sem_name); ?>">
+                                            <?php foreach ($subs as $sub): ?>
                                             <option value="<?php echo $sub['id']; ?>">
-                                                <?php echo htmlspecialchars($sub['name']); ?> (<?php echo htmlspecialchars($sub['semester_name']); ?>)
+                                                <?php echo htmlspecialchars($sub['name']); ?>
                                             </option>
+                                            <?php endforeach; ?>
+                                        </optgroup>
                                         <?php endforeach; ?>
                                     </select>
                                 </div>
@@ -220,6 +267,8 @@ document.addEventListener('DOMContentLoaded', function() {
 
     const hasSubjects = <?php echo count($all_subjects) > 0 ? 'true' : 'false'; ?>;
 
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
     const calendar = new FullCalendar.Calendar(calendarEl, {
         initialView: 'dayGridMonth',
         headerToolbar: {
@@ -233,9 +282,40 @@ document.addEventListener('DOMContentLoaded', function() {
         dayMaxEvents: 2,
         eventDisplay: 'block',
         displayEventTime: false,
-        selectable: hasSubjects,
+        editable: true,
+        eventDurationEditable: false,
+        selectable: true,
+        eventDrop: async function(info) {
+            const newDate = info.event.start;
+            const year = newDate.getFullYear();
+            const month = String(newDate.getMonth() + 1).padStart(2, '0');
+            const day = String(newDate.getDate()).padStart(2, '0');
+            const newDeadline = year + '-' + month + '-' + day + ' 23:59:00';
+            try {
+                const body = new URLSearchParams({
+                    action: 'reschedule',
+                    task_id: info.event.id,
+                    new_deadline: newDeadline,
+                    csrf_token: csrfToken
+                });
+                const res = await fetch(window.location.href, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
+                    body: body.toString()
+                });
+                const data = await res.json();
+                if (data.success) {
+                    if (typeof showToast === 'function') showToast(data.message, 'success');
+                } else {
+                    info.revert();
+                    if (typeof showToast === 'function') showToast(data.message || 'Failed to reschedule', 'error');
+                }
+            } catch (e) {
+                info.revert();
+                if (typeof showToast === 'function') showToast('Network error', 'error');
+            }
+        },
         dateClick: function(info) {
-            if (!hasSubjects) return;
             // Pre-fill deadline with clicked date (set to 23:59)
             const clickedDate = info.dateStr;
             const deadlineInput = document.getElementById('calAddDeadline');

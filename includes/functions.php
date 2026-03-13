@@ -73,6 +73,68 @@ function getUserTasks($user_id, $conn, $limit = 0, $offset = 0) {
     return $result->fetch_all(MYSQLI_ASSOC);
 }
 
+// Get filtered tasks with SQL-level filtering (avoids double-fetch)
+function getUserTasksFiltered($user_id, $conn, $subject_id = 0, $status = '', $sort = 'deadline', $sort_dir = 'ASC') {
+    $allowed_sorts = ['deadline', 'priority', 'created_at', 'title'];
+    $allowed_dirs = ['ASC', 'DESC'];
+    if (!in_array($sort, $allowed_sorts)) $sort = 'deadline';
+    if (!in_array(strtoupper($sort_dir), $allowed_dirs)) $sort_dir = 'ASC';
+    
+    // For priority sorting, use FIELD for proper order
+    $order_clause = $sort === 'priority' 
+        ? "FIELD(t.priority, 'High', 'Medium', 'Low') $sort_dir" 
+        : "t.$sort $sort_dir";
+    
+    $query = "SELECT t.*, COALESCE(s.name, 'General') as subject_name, COALESCE(se.name, '') as semester_name 
+              FROM tasks t
+              LEFT JOIN subjects s ON t.subject_id = s.id
+              LEFT JOIN semesters se ON s.semester_id = se.id
+              WHERE t.user_id = ? AND t.parent_id IS NULL";
+    $params = [$user_id];
+    $types = "i";
+    
+    if ($subject_id > 0) {
+        $query .= " AND t.subject_id = ?";
+        $params[] = $subject_id;
+        $types .= "i";
+    }
+    if (!empty($status) && in_array($status, ['Pending', 'In Progress', 'Completed'])) {
+        $query .= " AND t.status = ?";
+        $params[] = $status;
+        $types .= "s";
+    }
+    $query .= " ORDER BY $order_clause";
+    
+    $stmt = $conn->prepare($query);
+    $stmt->bind_param($types, ...$params);
+    $stmt->execute();
+    return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+}
+
+// Get task status counts in a single query (avoids multiple COUNT queries)
+function getTaskStatusCounts($user_id, $conn) {
+    $stmt = $conn->prepare("SELECT 
+        COUNT(*) as total,
+        SUM(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END) as pending,
+        SUM(CASE WHEN status = 'In Progress' THEN 1 ELSE 0 END) as in_progress,
+        SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) as completed
+        FROM tasks WHERE user_id = ? AND parent_id IS NULL");
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    return $stmt->get_result()->fetch_assoc();
+}
+
+// Get subject task stats (completion count for subject cards)
+function getSubjectTaskStats($subject_id, $conn) {
+    $stmt = $conn->prepare("SELECT 
+        COUNT(*) as total,
+        SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) as completed
+        FROM tasks WHERE subject_id = ? AND parent_id IS NULL");
+    $stmt->bind_param("i", $subject_id);
+    $stmt->execute();
+    return $stmt->get_result()->fetch_assoc();
+}
+
 // Function to get pending tasks count
 function getPendingTasksCount($user_id, $conn) {
     $query = "SELECT COUNT(*) as count FROM tasks t
@@ -173,27 +235,28 @@ function getTasksAsJSON($user_id, $conn) {
     $calendarEvents = [];
     
     foreach ($tasks as $task) {
-        $color = '';
-        switch ($task['priority']) {
-            case 'High':
-                $color = '#dc3545'; // red
-                break;
-            case 'Medium':
-                $color = '#ffc107'; // yellow
-                break;
-            case 'Low':
-                $color = '#28a745'; // green
-                break;
-            default:
-                $color = '#007bff'; // blue
+        $isCompleted = $task['status'] === 'Completed';
+        
+        // Completed tasks get muted gray; active tasks get priority colors
+        if ($isCompleted) {
+            $color = '#9ca3af'; // gray for completed
+        } else {
+            switch ($task['priority']) {
+                case 'High':   $color = '#dc3545'; break;
+                case 'Medium': $color = '#ffc107'; break;
+                case 'Low':    $color = '#28a745'; break;
+                default:       $color = '#007bff'; break;
+            }
         }
         
         $calendarEvents[] = [
             'id' => $task['id'],
-            'title' => $task['title'],
+            'title' => ($isCompleted ? '✓ ' : '') . $task['title'],
             'start' => $task['deadline'],
             'backgroundColor' => $color,
             'borderColor' => $color,
+            'textColor' => ($task['priority'] === 'Medium' && !$isCompleted) ? '#000' : '#fff',
+            'classNames' => $isCompleted ? ['fc-event-completed'] : [],
             'extendedProps' => [
                 'description' => $task['description'],
                 'priority' => $task['priority'],
@@ -553,6 +616,30 @@ function getAcceptedBuddy($user_id, $conn) {
     return $result;
 }
 
+// Get the most recent unlinked buddy (for showing past chat history)
+function getLastBuddyPair($user_id, $conn) {
+    $stmt = $conn->prepare("SELECT sb.*, 
+        CASE WHEN sb.requester_id = ? THEN sb.partner_id ELSE sb.requester_id END as buddy_id
+        FROM study_buddies sb 
+        WHERE (sb.requester_id = ? OR sb.partner_id = ?) AND sb.status = 'unlinked'
+        ORDER BY sb.updated_at DESC LIMIT 1");
+    $stmt->bind_param("iii", $user_id, $user_id, $user_id);
+    $stmt->execute();
+    $result = $stmt->get_result()->fetch_assoc();
+    if ($result) {
+        // Check if there are any messages between them
+        $check = $conn->prepare("SELECT COUNT(*) as cnt FROM buddy_messages 
+            WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?)");
+        $check->bind_param("iiii", $user_id, $result['buddy_id'], $result['buddy_id'], $user_id);
+        $check->execute();
+        $msg_count = $check->get_result()->fetch_assoc()['cnt'];
+        if ($msg_count == 0) return null;
+        $result['message_count'] = $msg_count;
+        $result['buddy'] = getUserInfo($result['buddy_id'], $conn);
+    }
+    return $result;
+}
+
 // Check if a user is blocked by or has blocked another user
 function isBuddyBlocked($user_id, $other_id, $conn) {
     $stmt = $conn->prepare("SELECT id FROM buddy_blocks 
@@ -824,6 +911,15 @@ function updateTypingStatus($user_id, $conn) {
     $stmt = $conn->prepare("INSERT INTO buddy_typing_status (user_id, typing_until) 
         VALUES (?, DATE_ADD(NOW(), INTERVAL 3 SECOND)) 
         ON DUPLICATE KEY UPDATE typing_until = DATE_ADD(NOW(), INTERVAL 3 SECOND)");
+    if ($stmt) {
+        $stmt->bind_param("i", $user_id);
+        $stmt->execute();
+    }
+}
+
+// Clear typing status (user stopped typing)
+function clearTypingStatus($user_id, $conn) {
+    $stmt = $conn->prepare("UPDATE buddy_typing_status SET typing_until = NOW() WHERE user_id = ?");
     if ($stmt) {
         $stmt->bind_param("i", $user_id);
         $stmt->execute();

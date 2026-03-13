@@ -125,6 +125,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WI
         exit();
     }
 
+    // ── Stop typing indicator ──
+    if ($action === 'stop_typing') {
+        clearTypingStatus($user_id, $conn);
+        echo json_encode(['success' => true]);
+        exit();
+    }
+
     // ── Heartbeat (online status) ──
     if ($action === 'heartbeat') {
         $buddy = getAcceptedBuddy($user_id, $conn);
@@ -319,6 +326,7 @@ $pending_requests = getPendingBuddyRequests($user_id, $conn);
 $sent_request = getSentBuddyRequest($user_id, $conn);
 $my_progress = getBuddyProgress($user_id, $conn);
 $blocked_users = getBlockedUsers($user_id, $conn);
+$last_buddy = !$buddy_pair ? getLastBuddyPair($user_id, $conn) : null;
 
 // If has buddy, get their progress and update online status
 $buddy_progress = null;
@@ -348,6 +356,56 @@ if ($buddy_pair) {
     <?php include __DIR__ . '/buddy_messenger.php'; ?>
 
     <?php else: ?>
+
+    <?php if ($last_buddy): ?>
+    <!-- ===== PAST CHAT HISTORY ===== -->
+    <div class="card mb-4">
+        <div class="card-body p-3">
+            <div class="d-flex align-items-center justify-content-between">
+                <div class="d-flex align-items-center gap-2">
+                    <div style="width:36px;height:36px;border-radius:50%;background:var(--bg-secondary);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:14px;color:var(--text-muted);">
+                        <?php echo strtoupper(substr($last_buddy['buddy']['name'], 0, 1)); ?>
+                    </div>
+                    <div>
+                        <strong style="font-size:13px;"><?php echo htmlspecialchars($last_buddy['buddy']['name']); ?></strong>
+                        <small class="d-block text-muted" style="font-size:11px;">Previously paired &middot; <?php echo $last_buddy['message_count']; ?> messages</small>
+                    </div>
+                </div>
+                <button class="btn btn-outline-secondary btn-sm" type="button" data-bs-toggle="collapse" data-bs-target="#pastChatHistory" style="font-size:12px;">
+                    <i class="fas fa-history"></i> View Chat History
+                </button>
+            </div>
+            <div class="collapse mt-3" id="pastChatHistory">
+                <div style="max-height:400px;overflow-y:auto;border:1px solid var(--border-color);border-radius:var(--border-radius-sm);padding:12px;background:var(--bg-body);">
+                    <?php
+                    $past_messages = getChatMessages($user_id, $last_buddy['buddy_id'], $conn, 200);
+                    if (empty($past_messages)): ?>
+                        <p class="text-muted text-center mb-0" style="font-size:13px;">No messages found.</p>
+                    <?php else:
+                        $prev_date = '';
+                        foreach ($past_messages as $msg):
+                            $msg_date = date('M j, Y', strtotime($msg['created_at']));
+                            $is_mine = intval($msg['sender_id']) === $user_id;
+                            if ($msg_date !== $prev_date): $prev_date = $msg_date; ?>
+                                <div class="text-center my-2"><small class="text-muted" style="font-size:10px;background:var(--bg-secondary);padding:2px 10px;border-radius:10px;"><?php echo $msg_date; ?></small></div>
+                            <?php endif; ?>
+                            <div class="d-flex mb-2 <?php echo $is_mine ? 'justify-content-end' : 'justify-content-start'; ?>">
+                                <div style="max-width:75%;padding:8px 12px;border-radius:12px;font-size:13px;line-height:1.5;
+                                    <?php echo $is_mine 
+                                        ? 'background:var(--primary);color:white;border-bottom-right-radius:4px;' 
+                                        : 'background:var(--bg-card);border:1px solid var(--border-color);color:var(--text-primary);border-bottom-left-radius:4px;'; ?>">
+                                    <?php echo htmlspecialchars($msg['message']); ?>
+                                    <div style="font-size:10px;margin-top:2px;opacity:0.7;"><?php echo date('g:i A', strtotime($msg['created_at'])); ?></div>
+                                </div>
+                            </div>
+                        <?php endforeach;
+                    endif; ?>
+                </div>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
+
     <!-- ===== UNPAIRED STATE ===== -->
     <div class="row g-4">
         <!-- Find a Buddy -->

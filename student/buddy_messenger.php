@@ -343,7 +343,7 @@ const BuddyMessenger = {
                 input.style.height = Math.min(input.scrollHeight, 120) + 'px';
                 clearTimeout(typingTimeout);
                 this.ajax('typing');
-                typingTimeout = setTimeout(() => {}, 3000);
+                typingTimeout = setTimeout(() => { this.ajax('stop_typing'); }, 3000);
             });
         }
         document.getElementById('chatSendBtn')?.addEventListener('click', () => this.send());

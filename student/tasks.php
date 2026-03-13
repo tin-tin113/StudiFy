@@ -88,7 +88,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $error = 'Title and deadline are required.';
         } else {
             $stmt = $conn->prepare("INSERT INTO tasks (user_id, subject_id, title, description, type, priority, deadline, is_recurring, recurrence_type, recurrence_end) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->bind_param("iisssssisss", $user_id, $subj_id_val, $title, $description, $type, $priority, $deadline, $is_recurring, $recurrence_type, $recurrence_end);
+            $stmt->bind_param("iisssssiss", $user_id, $subj_id_val, $title, $description, $type, $priority, $deadline, $is_recurring, $recurrence_type, $recurrence_end);
             if ($stmt->execute()) {
                 // Generate recurring copies
                 if ($is_recurring && !empty($recurrence_type) && !empty($recurrence_end)) {
@@ -101,11 +101,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if ($current > $end) break;
                         $next_deadline = $current->format('Y-m-d H:i:s');
                         $ins = $conn->prepare("INSERT INTO tasks (user_id, subject_id, title, description, type, priority, deadline, is_recurring, recurrence_type, recurrence_end) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                        $ins->bind_param("iisssssisss", $user_id, $subj_id_val, $title, $description, $type, $priority, $next_deadline, $is_recurring, $recurrence_type, $recurrence_end);
+                        $ins->bind_param("iisssssiss", $user_id, $subj_id_val, $title, $description, $type, $priority, $next_deadline, $is_recurring, $recurrence_type, $recurrence_end);
                         $ins->execute();
                     }
                 }
-                $success = 'Task added successfully!' . ($is_recurring ? ' Recurring copies created.' : '');
+                $_SESSION['message'] = 'Task added successfully!' . ($is_recurring ? ' Recurring copies created.' : '');
+                $_SESSION['message_type'] = 'success';
+                header('Location: tasks.php' . ($subject_id ? '?subject_id=' . $subject_id : ''));
+                exit();
             }
             else { $error = 'Error adding task.'; }
         }
@@ -130,23 +133,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } else {
                 $stmt = $conn->prepare("UPDATE tasks SET title = ?, description = ?, type = ?, priority = ?, status = ?, deadline = ? WHERE id = ?");
                 $stmt->bind_param("ssssssi", $title, $description, $type, $priority, $status, $deadline, $task_id);
-                if ($stmt->execute()) { $success = 'Task updated!'; }
+                if ($stmt->execute()) {
+                    $_SESSION['message'] = 'Task updated!';
+                    $_SESSION['message_type'] = 'success';
+                    header('Location: tasks.php' . ($subject_id ? '?subject_id=' . $subject_id : ''));
+                    exit();
+                }
                 else { $error = 'Error updating task.'; }
             }
         }
     }
 }
 
-// Build filter query
-$tasks = getUserTasks($user_id, $conn);
-
-if ($subject_id > 0) {
-    $tasks = array_filter($tasks, fn($t) => $t['subject_id'] == $subject_id);
-}
-if ($status_filter) {
-    $tasks = array_filter($tasks, fn($t) => $t['status'] === $status_filter);
-}
-$tasks = array_values($tasks);
+// Build filter query using SQL-level filtering (single optimized query)
+$sort = $_GET['sort'] ?? 'deadline';
+$sort_dir = $_GET['dir'] ?? 'ASC';
+$tasks = getUserTasksFiltered($user_id, $conn, $subject_id, $status_filter, $sort, $sort_dir);
 
 // Get all subjects for add form
 $all_subjects = [];
@@ -159,12 +161,12 @@ foreach ($semesters as $sem) {
     }
 }
 
-// Count by status
-$all_tasks = getUserTasks($user_id, $conn);
-$count_all = count($all_tasks);
-$count_pending = count(array_filter($all_tasks, fn($t) => $t['status'] === 'Pending'));
-$count_progress = count(array_filter($all_tasks, fn($t) => $t['status'] === 'In Progress'));
-$count_done = count(array_filter($all_tasks, fn($t) => $t['status'] === 'Completed'));
+// Count by status (single query instead of fetching all tasks twice)
+$status_counts = getTaskStatusCounts($user_id, $conn);
+$count_all = intval($status_counts['total']);
+$count_pending = intval($status_counts['pending']);
+$count_progress = intval($status_counts['in_progress']);
+$count_done = intval($status_counts['completed']);
 ?>
 <?php include '../includes/header.php'; ?>
 
@@ -204,33 +206,74 @@ $count_done = count(array_filter($all_tasks, fn($t) => $t['status'] === 'Complet
                             <a href="tasks.php" class="btn btn-sm btn-secondary"><i class="fas fa-times"></i> Clear Filter</a>
                         </span>
                     <?php endif; ?>
+
+                    <span class="<?php echo $subject_id > 0 ? '' : 'ms-auto'; ?>">
+                        <div class="dropdown d-inline">
+                            <button class="btn btn-sm btn-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                                <i class="fas fa-sort"></i> Sort
+                            </button>
+                            <?php
+                                // Build query string for sort links preserving current filters
+                                $filter_qs = '';
+                                if ($status_filter) $filter_qs .= '&status=' . urlencode($status_filter);
+                                if ($subject_id) $filter_qs .= '&subject_id=' . $subject_id;
+                            ?>
+                            <ul class="dropdown-menu dropdown-menu-end">
+                                <li><a class="dropdown-item <?php echo $sort === 'deadline' && $sort_dir === 'ASC' ? 'active' : ''; ?>" href="tasks.php?sort=deadline&dir=ASC<?php echo $filter_qs; ?>"><i class="fas fa-calendar-alt"></i> Deadline (Earliest)</a></li>
+                                <li><a class="dropdown-item <?php echo $sort === 'deadline' && $sort_dir === 'DESC' ? 'active' : ''; ?>" href="tasks.php?sort=deadline&dir=DESC<?php echo $filter_qs; ?>"><i class="fas fa-calendar-alt"></i> Deadline (Latest)</a></li>
+                                <li><a class="dropdown-item <?php echo $sort === 'priority' ? 'active' : ''; ?>" href="tasks.php?sort=priority&dir=ASC<?php echo $filter_qs; ?>"><i class="fas fa-flag"></i> Priority (High First)</a></li>
+                                <li><a class="dropdown-item <?php echo $sort === 'created_at' ? 'active' : ''; ?>" href="tasks.php?sort=created_at&dir=DESC<?php echo $filter_qs; ?>"><i class="fas fa-clock"></i> Recently Added</a></li>
+                                <li><a class="dropdown-item <?php echo $sort === 'title' ? 'active' : ''; ?>" href="tasks.php?sort=title&dir=ASC<?php echo $filter_qs; ?>"><i class="fas fa-font"></i> Alphabetical</a></li>
+                            </ul>
+                        </div>
+                    </span>
                 </div>
             </div>
         </div>
 
+        <?php
+            // Separate tasks into active and completed (only when showing "All")
+            $active_tasks = [];
+            $completed_tasks = [];
+            foreach ($tasks as $task) {
+                if ($task['status'] === 'Completed') {
+                    $completed_tasks[] = $task;
+                } else {
+                    $active_tasks[] = $task;
+                }
+            }
+
+            // When filtering by a specific status, show all results in a single flat list
+            $show_split = empty($status_filter) || $status_filter === 'Pending';
+            $display_tasks = $show_split ? $active_tasks : $tasks;
+        ?>
+
+        <?php if (count($display_tasks) > 0): ?>
         <!-- Task List -->
         <div class="task-list">
-            <?php if (count($tasks) > 0): ?>
-                <?php foreach ($tasks as $task): 
+                <?php foreach ($display_tasks as $task): 
                     $priority_class = '';
                     if ($task['priority'] === 'High') $priority_class = 'priority-high-border';
                     elseif ($task['priority'] === 'Medium') $priority_class = 'priority-medium-border';
                     else $priority_class = 'priority-low-border';
                     
-                    $is_completed = $task['status'] === 'Completed';
                     $deadline = new DateTime($task['deadline']);
                     $now = new DateTime();
-                    $is_overdue = $deadline < $now && !$is_completed;
+                    $is_overdue = $deadline < $now && $task['status'] !== 'Completed';
+                    $is_completed = $task['status'] === 'Completed';
                 ?>
-                <div class="card task-card <?php echo $priority_class; ?>" id="task-<?php echo $task['id']; ?>">
+                <div class="card task-card <?php echo $priority_class; ?> <?php echo $is_completed ? 'task-done' : ''; ?> status-<?php echo strtolower(str_replace(' ', '-', $task['status'])); ?>" id="task-<?php echo $task['id']; ?>">
                     <div class="d-flex justify-content-between align-items-start">
                         <div style="flex: 1; min-width: 0;">
                             <div class="d-flex align-items-center gap-2 mb-1">
+                                <?php if ($is_completed): ?>
+                                    <i class="fas fa-check-circle text-success" style="font-size: 16px;"></i>
+                                <?php endif; ?>
                                 <h6 class="task-title mb-0 <?php echo $is_completed ? 'completed' : ''; ?>">
                                     <?php echo htmlspecialchars($task['title']); ?>
                                 </h6>
                             </div>
-                            <?php if (!empty($task['description'])): ?>
+                            <?php if (!empty($task['description']) && !$is_completed): ?>
                                 <p class="text-muted mb-2" style="font-size: 12.5px;"><?php echo htmlspecialchars($task['description']); ?></p>
                             <?php endif; ?>
                             <div class="task-meta">
@@ -249,7 +292,14 @@ $count_done = count(array_filter($all_tasks, fn($t) => $t['status'] === 'Complet
                                 <span class="badge bg-<?php echo $task['priority'] === 'High' ? 'danger' : ($task['priority'] === 'Medium' ? 'warning' : 'success'); ?>">
                                     <?php echo $task['priority']; ?>
                                 </span>
-                                <span class="badge bg-<?php echo getStatusColor($task['status']); ?>">
+                                <span class="task-status-badge status-<?php echo strtolower(str_replace(' ', '-', $task['status'])); ?>">
+                                    <?php if ($task['status'] === 'Completed'): ?>
+                                        <i class="fas fa-check-circle"></i>
+                                    <?php elseif ($task['status'] === 'In Progress'): ?>
+                                        <i class="fas fa-spinner fa-pulse"></i>
+                                    <?php else: ?>
+                                        <i class="fas fa-hourglass-half"></i>
+                                    <?php endif; ?>
                                     <?php echo $task['status']; ?>
                                 </span>
                                 <span class="badge bg-secondary"><?php echo $task['type']; ?></span>
@@ -259,10 +309,96 @@ $count_done = count(array_filter($all_tasks, fn($t) => $t['status'] === 'Complet
                             </div>
                         </div>
                         <div class="task-actions ms-3">
-                            <button class="btn btn-sm <?php echo $is_completed ? 'btn-warning' : 'btn-success'; ?>" 
-                                    onclick="StudifyConfirm.action('<?php echo $is_completed ? 'Reopen Task' : 'Complete Task'; ?>', '<?php echo $is_completed ? 'Mark this task as pending again?' : 'Mark this task as completed?'; ?>', '<?php echo $is_completed ? 'warning' : 'success'; ?>', function(){ toggleTaskStatus(<?php echo $task['id']; ?>, '<?php echo BASE_URL; ?>') })"
-                                    title="<?php echo $is_completed ? 'Mark Pending' : 'Mark Complete'; ?>">
-                                <i class="fas fa-<?php echo $is_completed ? 'undo' : 'check'; ?>"></i>
+                            <?php if ($is_completed): ?>
+                            <button class="btn btn-sm btn-warning" 
+                                    onclick="StudifyConfirm.action('Reopen Task', 'Mark this task as pending again?', 'warning', function(){ toggleTaskStatus(<?php echo $task['id']; ?>, '<?php echo BASE_URL; ?>') })"
+                                    title="Reopen Task">
+                                <i class="fas fa-undo"></i>
+                            </button>
+                            <?php else: ?>
+                            <button class="btn btn-sm btn-success" 
+                                    onclick="StudifyConfirm.action('Complete Task', 'Mark this task as completed?', 'success', function(){ toggleTaskStatus(<?php echo $task['id']; ?>, '<?php echo BASE_URL; ?>') })"
+                                    title="Mark Complete">
+                                <i class="fas fa-check"></i>
+                            </button>
+                            <?php endif; ?>
+                            <button class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#editTaskModal"
+                                onclick="fillTaskEditForm(<?php echo htmlspecialchars(json_encode($task), ENT_QUOTES); ?>)">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="btn btn-sm btn-danger" onclick="StudifyConfirm.action('Delete Task', 'Are you sure you want to delete this task? This cannot be undone.', 'danger', function(){ deleteTask(<?php echo $task['id']; ?>, '<?php echo BASE_URL; ?>') })">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+        </div>
+        <?php else: ?>
+            <?php if ($status_filter): ?>
+                <div class="card">
+                    <div class="empty-state">
+                        <i class="fas fa-filter"></i>
+                        <h5>No <?php echo htmlspecialchars($status_filter); ?> Tasks</h5>
+                        <p>No tasks match the current filter.</p>
+                        <a href="tasks.php" class="btn btn-secondary mt-2"><i class="fas fa-times"></i> Clear Filter</a>
+                    </div>
+                </div>
+            <?php else: ?>
+                <div class="card">
+                    <div class="empty-state">
+                        <i class="fas fa-clipboard-list"></i>
+                        <h5>No Active Tasks</h5>
+                        <p>All caught up! Create a new task or check your completed ones below.</p>
+                        <button class="btn btn-primary mt-2" data-bs-toggle="modal" data-bs-target="#addTaskModal">
+                            <i class="fas fa-plus"></i> Add Task
+                        </button>
+                    </div>
+                </div>
+            <?php endif; ?>
+        <?php endif; ?>
+
+        <!-- Completed Tasks Section (only shown on All/Pending view) -->
+        <?php if ($show_split && count($completed_tasks) > 0): ?>
+        <div class="completed-tasks-section mt-4">
+            <div class="completed-tasks-header" onclick="toggleCompletedTasks()">
+                <div class="d-flex align-items-center gap-2">
+                    <i class="fas fa-check-double text-success"></i>
+                    <h6 class="mb-0">Completed Tasks</h6>
+                    <span class="badge bg-success rounded-pill"><?php echo count($completed_tasks); ?></span>
+                </div>
+                <i class="fas fa-chevron-down completed-toggle-icon" id="completedToggleIcon"></i>
+            </div>
+            <div id="completedTasksList" class="completed-tasks-body" style="display: none;">
+                <?php foreach ($completed_tasks as $task): ?>
+                <div class="card task-card task-done status-completed" id="task-<?php echo $task['id']; ?>">
+                    <div class="d-flex justify-content-between align-items-start">
+                        <div style="flex: 1; min-width: 0;">
+                            <div class="d-flex align-items-center gap-2 mb-1">
+                                <i class="fas fa-check-circle text-success" style="font-size: 16px;"></i>
+                                <h6 class="task-title mb-0 completed">
+                                    <?php echo htmlspecialchars($task['title']); ?>
+                                </h6>
+                            </div>
+                            <div class="task-meta">
+                                <?php if (!empty($task['subject_name']) && $task['subject_name'] !== 'General'): ?>
+                                <span><i class="fas fa-book"></i> <?php echo htmlspecialchars($task['subject_name']); ?></span>
+                                <?php endif; ?>
+                                <span>
+                                    <i class="fas fa-calendar"></i> 
+                                    <?php echo date('M d, Y', strtotime($task['deadline'])); ?>
+                                </span>
+                                <span class="badge bg-secondary"><?php echo $task['type']; ?></span>
+                                <span class="task-status-badge status-completed">
+                                    <i class="fas fa-check-circle"></i> Completed
+                                </span>
+                            </div>
+                        </div>
+                        <div class="task-actions ms-3">
+                            <button class="btn btn-sm btn-warning" 
+                                    onclick="StudifyConfirm.action('Reopen Task', 'Mark this task as pending again?', 'warning', function(){ toggleTaskStatus(<?php echo $task['id']; ?>, '<?php echo BASE_URL; ?>') })"
+                                    title="Reopen Task">
+                                <i class="fas fa-undo"></i>
                             </button>
                             <button class="btn btn-sm btn-info" data-bs-toggle="modal" data-bs-target="#editTaskModal"
                                 onclick="fillTaskEditForm(<?php echo htmlspecialchars(json_encode($task), ENT_QUOTES); ?>)">
@@ -275,19 +411,9 @@ $count_done = count(array_filter($all_tasks, fn($t) => $t['status'] === 'Complet
                     </div>
                 </div>
                 <?php endforeach; ?>
-            <?php else: ?>
-                <div class="card">
-                    <div class="empty-state">
-                        <i class="fas fa-clipboard-list"></i>
-                        <h5>No Tasks Found</h5>
-                        <p><?php echo $status_filter ? 'No tasks with this status.' : 'Create your first task to get started.'; ?></p>
-                        <button class="btn btn-primary mt-2" data-bs-toggle="modal" data-bs-target="#addTaskModal">
-                            <i class="fas fa-plus"></i> Add Task
-                        </button>
-                    </div>
-                </div>
-            <?php endif; ?>
+            </div>
         </div>
+        <?php endif; ?>
 
 <!-- Add Task Modal -->
 <div class="modal fade" id="addTaskModal" tabindex="-1">
@@ -465,6 +591,28 @@ $count_done = count(array_filter($all_tasks, fn($t) => $t['status'] === 'Complet
 </div>
 
 <script>
+function toggleCompletedTasks() {
+    const list = document.getElementById('completedTasksList');
+    const icon = document.getElementById('completedToggleIcon');
+    if (list.style.display === 'none') {
+        list.style.display = 'block';
+        icon.classList.replace('fa-chevron-down', 'fa-chevron-up');
+    } else {
+        list.style.display = 'none';
+        icon.classList.replace('fa-chevron-up', 'fa-chevron-down');
+    }
+}
+
+// Auto-expand completed section when filtering by Completed
+<?php if ($status_filter === 'Completed'): ?>
+document.addEventListener('DOMContentLoaded', function() {
+    const list = document.getElementById('completedTasksList');
+    const icon = document.getElementById('completedToggleIcon');
+    if (list) { list.style.display = 'block'; }
+    if (icon) { icon.classList.replace('fa-chevron-down', 'fa-chevron-up'); }
+});
+<?php endif; ?>
+
 function fillTaskEditForm(task) {
     document.getElementById('editTaskId').value = task.id;
     document.getElementById('editTitle').value = task.title;
