@@ -30,10 +30,12 @@ function runNotificationChecker($user_id, $conn) {
         $stmt = $conn->prepare(
             "SELECT t.id, t.title, t.deadline FROM tasks t
              WHERE t.user_id = ? AND t.status != 'Completed' AND t.deadline < NOW()
-             AND t.id NOT IN (
-                 SELECT n.reference_id FROM notifications n
-                 WHERE n.user_id = ? AND n.type = 'overdue' AND n.reference_type = 'task'
-                 AND DATE(n.created_at) = CURDATE()
+             AND NOT EXISTS (
+                 SELECT 1 FROM notifications n
+                 WHERE n.user_id = ?
+                   AND n.type = 'overdue'
+                   AND n.reference_type = 'task'
+                   AND n.reference_id = t.id
              )
              LIMIT 10"
         );
@@ -64,10 +66,12 @@ function runNotificationChecker($user_id, $conn) {
             "SELECT t.id, t.title, t.deadline FROM tasks t
              WHERE t.user_id = ? AND t.status != 'Completed'
              AND t.deadline > NOW() AND t.deadline <= DATE_ADD(NOW(), INTERVAL 1 HOUR)
-             AND t.id NOT IN (
-                 SELECT n.reference_id FROM notifications n
-                 WHERE n.user_id = ? AND n.type = 'deadline_1h' AND n.reference_type = 'task'
-                 AND DATE(n.created_at) = CURDATE()
+             AND NOT EXISTS (
+                 SELECT 1 FROM notifications n
+                 WHERE n.user_id = ?
+                   AND n.type = 'deadline_1h'
+                   AND n.reference_type = 'task'
+                   AND n.reference_id = t.id
              )
              LIMIT 10"
         );
@@ -95,10 +99,12 @@ function runNotificationChecker($user_id, $conn) {
              WHERE t.user_id = ? AND t.status != 'Completed'
              AND t.deadline > DATE_ADD(NOW(), INTERVAL 1 HOUR)
              AND t.deadline <= DATE_ADD(NOW(), INTERVAL 24 HOUR)
-             AND t.id NOT IN (
-                 SELECT n.reference_id FROM notifications n
-                 WHERE n.user_id = ? AND n.type = 'deadline_24h' AND n.reference_type = 'task'
-                 AND DATE(n.created_at) = CURDATE()
+             AND NOT EXISTS (
+                 SELECT 1 FROM notifications n
+                 WHERE n.user_id = ?
+                   AND n.type = 'deadline_24h'
+                   AND n.reference_type = 'task'
+                   AND n.reference_id = t.id
              )
              LIMIT 10"
         );

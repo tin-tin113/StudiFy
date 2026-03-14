@@ -51,6 +51,16 @@ switch ($action) {
         }
         break;
 
+    case 'dismiss_overdue':
+        $stmt = $conn->prepare("UPDATE notifications SET is_dismissed = 1 WHERE user_id = ? AND type = 'overdue'");
+        $stmt->bind_param("i", $user_id);
+        if ($stmt->execute()) {
+            echo json_encode(['success' => true]);
+        } else {
+            echo json_encode(['success' => false, 'message' => 'Unable to dismiss overdue alerts']);
+        }
+        break;
+
     case 'get_count':
         $count = getUnreadNotificationCount($user_id, $conn);
         echo json_encode(['success' => true, 'count' => $count]);

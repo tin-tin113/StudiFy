@@ -193,9 +193,9 @@ $initials = strtoupper(substr($user['name'], 0, 1) . (strpos($user['name'], ' ')
                                         <td class="fw-medium"><?php echo htmlspecialchars($task['title']); ?></td>
                                         <td><small><?php echo htmlspecialchars($task['subject_name']); ?></small></td>
                                         <td>
-                                            <span class="task-status-badge status-<?php echo strtolower(str_replace(' ', '-', $task['status'])); ?>">
-                                                <i class="fas fa-<?php echo $task['status'] === 'Completed' ? 'check-circle' : ($task['status'] === 'In Progress' ? 'spinner fa-pulse' : 'hourglass-half'); ?>"></i>
-                                                <?php echo $task['status']; ?>
+                                            <span class="task-status-badge status-<?php echo $task['status'] === 'Completed' ? 'completed' : 'pending'; ?>">
+                                                <i class="fas fa-<?php echo $task['status'] === 'Completed' ? 'check-circle' : 'hourglass-half'; ?>"></i>
+                                                <?php echo $task['status'] === 'Completed' ? 'Completed' : 'Pending'; ?>
                                             </span>
                                         </td>
                                         <td><small class="text-muted"><?php echo formatDateTime($task['deadline']); ?></small></td>

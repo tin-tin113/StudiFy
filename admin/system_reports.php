@@ -22,11 +22,8 @@ $result = $conn->query("SELECT COUNT(*) as count FROM tasks WHERE status = 'Comp
 if ($row = $result->fetch_assoc()) $completed_tasks = $row['count'];
 
 $pending_tasks = 0;
-$result = $conn->query("SELECT COUNT(*) as count FROM tasks WHERE status = 'Pending'");
+$result = $conn->query("SELECT COUNT(*) as count FROM tasks WHERE status != 'Completed'");
 if ($row = $result->fetch_assoc()) $pending_tasks = $row['count'];
-
-$in_progress_tasks = $total_tasks - $completed_tasks - $pending_tasks;
-if ($in_progress_tasks < 0) $in_progress_tasks = 0;
 
 // Tasks by priority
 $priority_data = ['High' => 0, 'Medium' => 0, 'Low' => 0];
@@ -238,10 +235,10 @@ document.addEventListener('DOMContentLoaded', function() {
         new Chart(statusCtx, {
             type: 'doughnut',
             data: {
-                labels: ['Pending', 'In Progress', 'Completed'],
+                labels: ['Pending', 'Completed'],
                 datasets: [{
-                    data: [<?php echo $pending_tasks; ?>, <?php echo $in_progress_tasks; ?>, <?php echo $completed_tasks; ?>],
-                    backgroundColor: ['#EAB308', '#2563EB', '#16A34A'],
+                    data: [<?php echo $pending_tasks; ?>, <?php echo $completed_tasks; ?>],
+                    backgroundColor: ['#EAB308', '#16A34A'],
                     borderWidth: 0
                 }]
             },

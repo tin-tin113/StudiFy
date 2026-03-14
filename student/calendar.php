@@ -348,7 +348,6 @@ document.addEventListener('DOMContentLoaded', function() {
             statusBadge.textContent = props.status || 'N/A';
             statusBadge.className = 'badge';
             if (props.status === 'Completed') statusBadge.classList.add('bg-success');
-            else if (props.status === 'In Progress') statusBadge.classList.add('bg-info');
             else statusBadge.classList.add('bg-warning');
 
             new bootstrap.Modal(document.getElementById('taskModal')).show();

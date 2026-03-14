@@ -72,7 +72,7 @@ $csrf_token = generateCSRFToken();
     <link rel="manifest" href="<?php echo BASE_URL; ?>manifest.json">
     <meta name="theme-color" content="#16A34A">
 </head>
-<body>
+<body<?php echo ($current_page === 'dashboard.php') ? ' class="dashboard-page"' : ''; ?>>
 
 <!-- Sidebar Overlay (Mobile) -->
 <div class="sidebar-overlay" id="sidebarOverlay"></div>
@@ -146,6 +146,10 @@ $csrf_token = generateCSRFToken();
                 <?php if ($pending_count > 0): ?>
                     <span class="badge bg-warning ms-auto" style="font-size: 10px;"><?php echo $pending_count; ?></span>
                 <?php endif; ?>
+            </a>
+            <a href="<?php echo BASE_URL; ?>student/daily_planning.php" title="Daily Planning"
+               class="nav-link-sidebar <?php echo $current_page === 'daily_planning.php' ? 'active' : ''; ?>">
+                <i class="fas fa-calendar-day"></i> <span class="sidebar-link-text">Daily Planning</span>
             </a>
             <a href="<?php echo BASE_URL; ?>student/calendar.php" title="Calendar"
                class="nav-link-sidebar <?php echo $current_page === 'calendar.php' ? 'active' : ''; ?>">
@@ -357,6 +361,13 @@ $csrf_token = generateCSRFToken();
     </div>
 </div>
 
+<!-- Floating Quick Add Button (Student Only) -->
+<?php if (isset($_SESSION['user_id']) && $user_role === 'student'): ?>
+<button class="btn btn-primary floating-quick-add" onclick="QuickAdd.open()" title="Quick Add Task (Ctrl+Q)">
+    <i class="fas fa-plus"></i>
+</button>
+<?php endif; ?>
+
 <!-- MAIN CONTENT -->
 <main class="main-content">
     <div class="content-wrapper">
@@ -367,64 +378,110 @@ $csrf_token = generateCSRFToken();
         <?php endif; ?>
 
         <?php if ($show_onboarding): ?>
-        <!-- Onboarding Checklist -->
+        <!-- Enhanced Onboarding Checklist -->
+        <?php
+        $onboarding_progress = getOnboardingProgress($_SESSION['user_id'], $conn);
+        $steps = $onboarding_progress['steps'];
+        $completed = $onboarding_progress['completed'];
+        $total = $onboarding_progress['total'];
+        $percentage = $onboarding_progress['percentage'];
+        ?>
         <div class="card mb-4 onboarding-card" id="onboardingCard">
             <div class="card-body">
-                <div class="d-flex justify-content-between align-items-start">
+                <div class="d-flex justify-content-between align-items-start mb-3">
                     <div>
                         <h5 class="fw-700 mb-1"><i class="fas fa-rocket text-primary"></i> Welcome to Studify! Let's get you set up.</h5>
-                        <p class="text-muted mb-3" style="font-size: 13px;">Complete these steps to start organizing your academic life.</p>
+                        <p class="text-muted mb-2" style="font-size: 13px;">Complete these steps to start organizing your academic life.</p>
+                        <!-- Progress Bar -->
+                        <div class="d-flex align-items-center gap-2 mt-2">
+                            <div class="progress flex-grow-1" style="height: 8px; max-width: 300px;">
+                                <div class="progress-bar bg-success" role="progressbar" style="width: <?php echo $percentage; ?>%" 
+                                     aria-valuenow="<?php echo $percentage; ?>" aria-valuemin="0" aria-valuemax="100"></div>
+                            </div>
+                            <small class="text-muted fw-600"><?php echo $completed; ?>/<?php echo $total; ?> (<?php echo $percentage; ?>%)</small>
+                        </div>
                     </div>
                     <button class="btn btn-sm btn-secondary" onclick="dismissOnboarding()" title="Dismiss">
                         <i class="fas fa-times"></i>
                     </button>
                 </div>
                 <div class="onboarding-steps">
-                    <?php
-                    $semesters_exist = count(getUserSemesters($_SESSION['user_id'], $conn)) > 0;
-                    $subjects_exist = false;
-                    $tasks_exist = false;
-                    if ($semesters_exist) {
-                        foreach (getUserSemesters($_SESSION['user_id'], $conn) as $sem) {
-                            $subs = getSemesterSubjects($sem['id'], $conn);
-                            if (count($subs) > 0) {
-                                $subjects_exist = true;
-                                foreach ($subs as $sub) {
-                                    if (count(getSubjectTasks($sub['id'], $conn)) > 0) {
-                                        $tasks_exist = true;
-                                        break 2;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    ?>
-                    <a href="<?php echo BASE_URL; ?>student/semesters.php" class="onboarding-step <?php echo $semesters_exist ? 'completed' : ''; ?>">
-                        <div class="step-check"><i class="fas fa-<?php echo $semesters_exist ? 'check' : 'plus'; ?>"></i></div>
+                    <!-- Step 1: Create Semester -->
+                    <a href="<?php echo BASE_URL; ?>student/semesters.php" class="onboarding-step <?php echo $steps['semester'] ? 'completed' : ''; ?>">
+                        <div class="step-check"><i class="fas fa-<?php echo $steps['semester'] ? 'check' : 'plus'; ?>"></i></div>
                         <div>
                             <div class="fw-600" style="font-size: 13px;">Create a Semester</div>
                             <div class="text-muted" style="font-size: 11px;">e.g., "1st Semester 2025-2026"</div>
                         </div>
                     </a>
-                    <a href="<?php echo BASE_URL; ?>student/subjects.php" class="onboarding-step <?php echo $subjects_exist ? 'completed' : ''; ?>">
-                        <div class="step-check"><i class="fas fa-<?php echo $subjects_exist ? 'check' : 'plus'; ?>"></i></div>
+                    
+                    <!-- Step 2: Add Subjects -->
+                    <a href="<?php echo BASE_URL; ?>student/subjects.php" class="onboarding-step <?php echo $steps['subjects'] ? 'completed' : ''; ?> <?php echo !$steps['semester'] ? 'disabled' : ''; ?>">
+                        <div class="step-check"><i class="fas fa-<?php echo $steps['subjects'] ? 'check' : 'plus'; ?>"></i></div>
                         <div>
-                            <div class="fw-600" style="font-size: 13px;">Add Subjects</div>
+                            <div class="fw-600" style="font-size: 13px;">Add Subjects (3+ recommended)</div>
                             <div class="text-muted" style="font-size: 11px;">Add your courses for this semester</div>
                         </div>
                     </a>
-                    <a href="<?php echo BASE_URL; ?>student/tasks.php" class="onboarding-step <?php echo $tasks_exist ? 'completed' : ''; ?>">
-                        <div class="step-check"><i class="fas fa-<?php echo $tasks_exist ? 'check' : 'plus'; ?>"></i></div>
+                    
+                    <!-- Step 3: Create First Task -->
+                    <a href="<?php echo BASE_URL; ?>student/tasks.php" class="onboarding-step <?php echo $steps['task'] ? 'completed' : ''; ?> <?php echo !$steps['subjects'] ? 'disabled' : ''; ?>">
+                        <div class="step-check"><i class="fas fa-<?php echo $steps['task'] ? 'check' : 'plus'; ?>"></i></div>
                         <div>
                             <div class="fw-600" style="font-size: 13px;">Create Your First Task</div>
                             <div class="text-muted" style="font-size: 11px;">Add an assignment, quiz, or project</div>
                         </div>
                     </a>
+                    
+                    <!-- Step 4: Complete First Task -->
+                    <a href="<?php echo BASE_URL; ?>student/tasks.php?status=Completed" class="onboarding-step <?php echo $steps['task_completed'] ? 'completed' : ''; ?> <?php echo !$steps['task'] ? 'disabled' : ''; ?>">
+                        <div class="step-check"><i class="fas fa-<?php echo $steps['task_completed'] ? 'check' : 'circle'; ?>"></i></div>
+                        <div>
+                            <div class="fw-600" style="font-size: 13px;">Complete Your First Task</div>
+                            <div class="text-muted" style="font-size: 11px;">Mark a task as completed</div>
+                        </div>
+                    </a>
+                    
+                    <!-- Step 5: Use Pomodoro Timer -->
+                    <a href="<?php echo BASE_URL; ?>student/pomodoro.php" class="onboarding-step <?php echo $steps['pomodoro'] ? 'completed' : ''; ?>">
+                        <div class="step-check"><i class="fas fa-<?php echo $steps['pomodoro'] ? 'check' : 'clock'; ?>"></i></div>
+                        <div>
+                            <div class="fw-600" style="font-size: 13px;">Use Pomodoro Timer</div>
+                            <div class="text-muted" style="font-size: 11px;">Start a focused study session</div>
+                        </div>
+                    </a>
+                    
+                    <!-- Step 6: Set Up Study Buddy (Optional) -->
+                    <a href="<?php echo BASE_URL; ?>student/study_buddy.php" class="onboarding-step <?php echo $steps['buddy'] ? 'completed' : ''; ?>">
+                        <div class="step-check"><i class="fas fa-<?php echo $steps['buddy'] ? 'check' : 'user-friends'; ?>"></i></div>
+                        <div>
+                            <div class="fw-600" style="font-size: 13px;">Set Up Study Buddy <span class="badge bg-secondary" style="font-size: 9px;">Optional</span></div>
+                            <div class="text-muted" style="font-size: 11px;">Pair with a classmate for accountability</div>
+                        </div>
+                    </a>
+                    
+                    <!-- Step 7: Customize Dashboard -->
+                    <a href="<?php echo BASE_URL; ?>student/dashboard.php" class="onboarding-step <?php echo $steps['dashboard'] ? 'completed' : ''; ?>">
+                        <div class="step-check"><i class="fas fa-<?php echo $steps['dashboard'] ? 'check' : 'sliders-h'; ?>"></i></div>
+                        <div>
+                            <div class="fw-600" style="font-size: 13px;">Customize Dashboard</div>
+                            <div class="text-muted" style="font-size: 11px;">Arrange widgets to your preference</div>
+                        </div>
+                    </a>
+                    
+                    <!-- Step 8: Explore Calendar View -->
+                    <a href="<?php echo BASE_URL; ?>student/calendar.php" class="onboarding-step <?php echo $steps['calendar'] ? 'completed' : ''; ?>">
+                        <div class="step-check"><i class="fas fa-<?php echo $steps['calendar'] ? 'check' : 'calendar-alt'; ?>"></i></div>
+                        <div>
+                            <div class="fw-600" style="font-size: 13px;">Explore Calendar View</div>
+                            <div class="text-muted" style="font-size: 11px;">View your tasks on the calendar</div>
+                        </div>
+                    </a>
                 </div>
-                <?php if ($semesters_exist && $subjects_exist && $tasks_exist): ?>
+                <?php if ($completed >= 5): ?>
                 <div class="mt-3 text-center">
                     <button class="btn btn-success btn-sm" onclick="dismissOnboarding()">
-                        <i class="fas fa-check"></i> All done! Dismiss this guide
+                        <i class="fas fa-check"></i> Great progress! Dismiss this guide
                     </button>
                 </div>
                 <?php endif; ?>

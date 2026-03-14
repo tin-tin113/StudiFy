@@ -37,6 +37,29 @@ if (isset($_GET['ajax']) && $_GET['ajax'] === 'tasks' && isset($_GET['subject_id
     exit();
 }
 
+// Handle AJAX request for subject list (used by Quick Add)
+if (isset($_GET['action']) && $_GET['action'] === 'list') {
+    header('Content-Type: application/json');
+    $user_id = getCurrentUserId();
+    $subjects = [];
+    
+    $query = "SELECT s.id, s.name, sem.name as semester_name 
+              FROM subjects s 
+              JOIN semesters sem ON s.semester_id = sem.id 
+              WHERE sem.user_id = ? 
+              ORDER BY sem.created_at DESC, s.name ASC";
+    $stmt = $conn->prepare($query);
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    while ($row = $result->fetch_assoc()) {
+        $subjects[] = $row;
+    }
+    
+    echo json_encode(['success' => true, 'subjects' => $subjects]);
+    exit();
+}
+
 // Handle AJAX request to add a task from subjects page
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WITH'])) {
     header('Content-Type: application/json');
@@ -58,6 +81,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WI
         if (empty($title) || empty($deadline)) {
             echo json_encode(['success' => false, 'message' => 'Title and deadline are required']);
             exit();
+        }
+
+        // Convert deadline to proper datetime format if needed
+        if (strlen($deadline) === 16 && strpos($deadline, 'T') !== false) {
+            $deadline = str_replace('T', ' ', $deadline) . ':00';
         }
         
         // Verify subject belongs to user
@@ -493,8 +521,6 @@ function loadSubjectTasks(subjectId, panel) {
                         statusBadge = '<span class="badge" style="background: rgba(220,38,38,0.1); color: var(--danger); font-size: 10px;"><i class="fas fa-exclamation-triangle"></i> Overdue</span>';
                     } else if (isCompleted) {
                         statusBadge = '<span class="badge" style="background: rgba(22,163,74,0.1); color: var(--success); font-size: 10px;"><i class="fas fa-check-circle"></i> Done</span>';
-                    } else if (task.status === 'In Progress') {
-                        statusBadge = '<span class="badge" style="background: rgba(37,99,235,0.1); color: var(--info); font-size: 10px;"><i class="fas fa-spinner"></i> In Progress</span>';
                     } else {
                         statusBadge = '<span class="badge" style="background: rgba(234,179,8,0.1); color: var(--warning); font-size: 10px;"><i class="fas fa-hourglass-half"></i> Pending</span>';
                     }

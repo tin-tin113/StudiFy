@@ -13,6 +13,15 @@ if (!isset($_GET['confirm']) || $_GET['confirm'] !== 'yes') {
     </body></html>");
 }
 
+// Restrict setup execution to local environment or CLI
+$is_cli = (php_sapi_name() === 'cli');
+$remote_addr = $_SERVER['REMOTE_ADDR'] ?? '';
+$is_local = in_array($remote_addr, ['127.0.0.1', '::1']);
+if (!$is_cli && !$is_local) {
+    http_response_code(403);
+    die('Forbidden');
+}
+
 $db_host = 'localhost';
 $db_user = 'root';
 $db_password = '';
@@ -39,7 +48,7 @@ if ($conn->query($sql)) {
 
 // Select database
 $conn->select_db($db_name);
-$conn->set_charset("utf8");
+$conn->set_charset("utf8mb4");
 
 // Create Users Table
 $sql = "CREATE TABLE IF NOT EXISTS users (
@@ -103,21 +112,24 @@ if ($conn->query($sql)) {
 // Create Tasks Table
 $sql = "CREATE TABLE IF NOT EXISTS tasks (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    subject_id INT NOT NULL,
+    user_id INT NOT NULL,
+    subject_id INT DEFAULT NULL,
     parent_id INT DEFAULT NULL COMMENT 'For subtasks - references parent task',
     title VARCHAR(255) NOT NULL,
     description TEXT,
     deadline DATETIME NOT NULL,
     priority ENUM('Low', 'Medium', 'High') DEFAULT 'Medium',
     type ENUM('Assignment', 'Quiz', 'Project', 'Exam', 'Report', 'Other') DEFAULT 'Assignment',
-    status ENUM('Pending', 'In Progress', 'Completed') DEFAULT 'Pending',
+    status ENUM('Pending', 'Completed') DEFAULT 'Pending',
     is_recurring TINYINT(1) DEFAULT 0,
     recurrence_type ENUM('Daily', 'Weekly', 'Monthly') DEFAULT NULL,
     recurrence_end DATE DEFAULT NULL,
     position INT DEFAULT 0 COMMENT 'For Kanban ordering',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE CASCADE,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (subject_id) REFERENCES subjects(id) ON DELETE SET NULL,
+    INDEX idx_user_id (user_id),
     FOREIGN KEY (parent_id) REFERENCES tasks(id) ON DELETE CASCADE,
     INDEX idx_subject_id (subject_id),
     INDEX idx_parent_id (parent_id),
@@ -219,16 +231,16 @@ if ($check->num_rows === 0) {
         $tasks = [
             [$subject_ids[0], 'Research Paper Draft', 'Write the first draft of the research paper', date('Y-m-d H:i:s', strtotime('+5 days')), 'High', 'Assignment', 'Pending'],
             [$subject_ids[0], 'Midterm Exam', 'Chapters 1-5', date('Y-m-d H:i:s', strtotime('+10 days')), 'High', 'Exam', 'Pending'],
-            [$subject_ids[1], 'SQL Exercise 3', 'Complete SQL queries exercises', date('Y-m-d H:i:s', strtotime('+3 days')), 'Medium', 'Assignment', 'In Progress'],
+            [$subject_ids[1], 'SQL Exercise 3', 'Complete SQL queries exercises', date('Y-m-d H:i:s', strtotime('+3 days')), 'Medium', 'Assignment', 'Pending'],
             [$subject_ids[1], 'Database Design Project', 'Design ERD for the semester project', date('Y-m-d H:i:s', strtotime('+14 days')), 'High', 'Project', 'Pending'],
             [$subject_ids[2], 'Quiz 2 - DFD', 'Data Flow Diagram concepts', date('Y-m-d H:i:s', strtotime('+2 days')), 'Medium', 'Quiz', 'Pending'],
             [$subject_ids[2], 'Case Study Analysis', 'Analyze business case study', date('Y-m-d H:i:s', strtotime('-2 days')), 'Low', 'Assignment', 'Completed']
         ];
         
         foreach ($tasks as $task) {
-            $stmt = $conn->prepare("INSERT INTO tasks (subject_id, title, description, deadline, priority, type, status) 
-                                   VALUES (?, ?, ?, ?, ?, ?, ?)");
-            $stmt->bind_param("issssss", $task[0], $task[1], $task[2], $task[3], $task[4], $task[5], $task[6]);
+            $stmt = $conn->prepare("INSERT INTO tasks (user_id, subject_id, title, description, deadline, priority, type, status) 
+                                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->bind_param("iissssss", $student_id, $task[0], $task[1], $task[2], $task[3], $task[4], $task[5], $task[6]);
             $stmt->execute();
         }
         
@@ -266,8 +278,27 @@ if ($result->num_rows === 0) {
 
 // Upgrade tasks table - add additional types and statuses
 $conn->query("ALTER TABLE tasks MODIFY COLUMN type ENUM('Assignment','Quiz','Project','Exam','Report','Other') DEFAULT 'Assignment'");
-$conn->query("ALTER TABLE tasks MODIFY COLUMN status ENUM('Pending','In Progress','Completed') DEFAULT 'Pending'");
+$conn->query("UPDATE tasks SET status = 'Pending' WHERE status = 'In Progress'");
+$conn->query("ALTER TABLE tasks MODIFY COLUMN status ENUM('Pending','Completed') DEFAULT 'Pending'");
 echo "<p style='color:green;'>✅ Updated tasks enum values.</p>";
+
+// Ensure tasks.user_id exists and is backfilled (for older installs)
+$result = $conn->query("SHOW COLUMNS FROM tasks LIKE 'user_id'");
+if ($result->num_rows === 0) {
+    $conn->query("ALTER TABLE tasks ADD COLUMN user_id INT NULL FIRST");
+    $conn->query("UPDATE tasks t
+        LEFT JOIN subjects s ON s.id = t.subject_id
+        LEFT JOIN semesters sem ON sem.id = s.semester_id
+        SET t.user_id = sem.user_id
+        WHERE t.user_id IS NULL");
+    $conn->query("ALTER TABLE tasks MODIFY COLUMN user_id INT NOT NULL");
+    $conn->query("ALTER TABLE tasks ADD INDEX idx_user_id (user_id)");
+    $conn->query("ALTER TABLE tasks ADD CONSTRAINT fk_tasks_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE");
+    echo "<p style='color:green;'>✅ Added and backfilled tasks.user_id column.</p>";
+}
+
+// Align tasks.subject_id nullability and FK behavior with base schema
+$conn->query("ALTER TABLE tasks MODIFY COLUMN subject_id INT DEFAULT NULL");
 
 // Add parent_id for subtasks support
 $result = $conn->query("SHOW COLUMNS FROM tasks LIKE 'parent_id'");
@@ -292,6 +323,27 @@ if ($result->num_rows === 0) {
     $conn->query("ALTER TABLE tasks ADD COLUMN recurrence_end DATE DEFAULT NULL");
     echo "<p style='color:green;'>✅ Added recurring fields to tasks.</p>";
 }
+
+    // Create Task Templates Table
+    $sql = "CREATE TABLE IF NOT EXISTS task_templates (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        user_id INT NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        description TEXT,
+        type ENUM('Assignment', 'Quiz', 'Project', 'Exam', 'Report', 'Other') DEFAULT 'Assignment',
+        priority ENUM('Low', 'Medium', 'High') DEFAULT 'Medium',
+        is_recurring TINYINT(1) DEFAULT 0,
+        recurrence_type ENUM('Daily', 'Weekly', 'Monthly') DEFAULT NULL,
+        is_system TINYINT(1) DEFAULT 0 COMMENT 'System templates available to all users',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+        INDEX idx_user_id (user_id),
+        INDEX idx_is_system (is_system)
+    )";
+    $conn->query($sql);
+    echo "<p style='color:green;'>✅ Table 'task_templates' created/verified.</p>";
 
 // Create Notes Table
 $sql = "CREATE TABLE IF NOT EXISTS notes (
@@ -355,18 +407,6 @@ $sql = "CREATE TABLE IF NOT EXISTS password_resets (
 $conn->query($sql);
 echo "<p style='color:green;'>&#9989; Table 'password_resets' created/verified.</p>";
 
-// Create Login Attempts Table
-$sql = "CREATE TABLE IF NOT EXISTS login_attempts (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    email VARCHAR(255) NOT NULL,
-    ip_address VARCHAR(45) NOT NULL,
-    attempted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_email_time (email, attempted_at),
-    INDEX idx_ip_time (ip_address, attempted_at)
-)";
-$conn->query($sql);
-echo "<p style='color:green;'>✅ Table 'login_attempts' created/verified.</p>";
-
 // Create Activity Log Table
 $sql = "CREATE TABLE IF NOT EXISTS activity_log (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -396,6 +436,10 @@ $sql = "CREATE TABLE IF NOT EXISTS attachments (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
     FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE,
+    CONSTRAINT chk_attachments_exactly_one_target CHECK (
+        (task_id IS NOT NULL AND note_id IS NULL) OR
+        (task_id IS NULL AND note_id IS NOT NULL)
+    ),
     INDEX idx_task_id (task_id),
     INDEX idx_note_id (note_id),
     INDEX idx_user_id (user_id)
@@ -414,7 +458,7 @@ $sql = "CREATE TABLE IF NOT EXISTS study_buddies (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (requester_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (partner_id) REFERENCES users(id) ON DELETE CASCADE,
-    UNIQUE KEY unique_pair (requester_id, partner_id),
+    UNIQUE KEY unique_pair_unordered ((LEAST(requester_id,partner_id)), (GREATEST(requester_id,partner_id))),
     INDEX idx_requester (requester_id),
     INDEX idx_partner (partner_id),
     INDEX idx_invite_code (invite_code),
@@ -513,6 +557,24 @@ if ($result->num_rows === 0) {
 // Upgrade study_buddies status enum to include 'unlinked'
 $conn->query("ALTER TABLE study_buddies MODIFY COLUMN status ENUM('pending', 'accepted', 'declined', 'unlinked') DEFAULT 'pending'");
 echo "<p style='color:green;'>&#9989; Updated study_buddies status enum.</p>";
+
+// Enforce unordered uniqueness for buddy pairs in existing installs
+$result = $conn->query("SHOW INDEX FROM study_buddies WHERE Key_name = 'unique_pair_unordered'");
+if (!$result || $result->num_rows === 0) {
+    // Remove reverse duplicates first (keep latest row)
+    $conn->query("DELETE sb1 FROM study_buddies sb1
+        JOIN study_buddies sb2
+          ON LEAST(sb1.requester_id, sb1.partner_id) = LEAST(sb2.requester_id, sb2.partner_id)
+         AND GREATEST(sb1.requester_id, sb1.partner_id) = GREATEST(sb2.requester_id, sb2.partner_id)
+         AND sb1.id < sb2.id");
+
+    $conn->query("ALTER TABLE study_buddies ADD UNIQUE INDEX unique_pair_unordered ((LEAST(requester_id,partner_id)), (GREATEST(requester_id,partner_id)))");
+    $old_idx = $conn->query("SHOW INDEX FROM study_buddies WHERE Key_name = 'unique_pair'");
+    if ($old_idx && $old_idx->num_rows > 0) {
+        $conn->query("ALTER TABLE study_buddies DROP INDEX unique_pair");
+    }
+    echo "<p style='color:green;'>✅ Upgraded study_buddies to unordered unique pairing.</p>";
+}
 
 // Create uploads directory
 $upload_dirs = [

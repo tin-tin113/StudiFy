@@ -98,10 +98,15 @@ function getUserTasksFiltered($user_id, $conn, $subject_id = 0, $status = '', $s
         $params[] = $subject_id;
         $types .= "i";
     }
-    if (!empty($status) && in_array($status, ['Pending', 'In Progress', 'Completed'])) {
-        $query .= " AND t.status = ?";
-        $params[] = $status;
-        $types .= "s";
+    if (!empty($status) && in_array($status, ['Pending', 'Completed'])) {
+        if ($status === 'Pending') {
+            // Treat legacy "In Progress" rows as pending to keep behavior consistent
+            $query .= " AND t.status != 'Completed'";
+        } else {
+            $query .= " AND t.status = ?";
+            $params[] = $status;
+            $types .= "s";
+        }
     }
     $query .= " ORDER BY $order_clause";
     
@@ -115,8 +120,7 @@ function getUserTasksFiltered($user_id, $conn, $subject_id = 0, $status = '', $s
 function getTaskStatusCounts($user_id, $conn) {
     $stmt = $conn->prepare("SELECT 
         COUNT(*) as total,
-        SUM(CASE WHEN status = 'Pending' THEN 1 ELSE 0 END) as pending,
-        SUM(CASE WHEN status = 'In Progress' THEN 1 ELSE 0 END) as in_progress,
+        SUM(CASE WHEN status != 'Completed' THEN 1 ELSE 0 END) as pending,
         SUM(CASE WHEN status = 'Completed' THEN 1 ELSE 0 END) as completed
         FROM tasks WHERE user_id = ? AND parent_id IS NULL");
     $stmt->bind_param("i", $user_id);
@@ -138,7 +142,7 @@ function getSubjectTaskStats($subject_id, $conn) {
 // Function to get pending tasks count
 function getPendingTasksCount($user_id, $conn) {
     $query = "SELECT COUNT(*) as count FROM tasks t
-              WHERE t.user_id = ? AND t.status = 'Pending' AND t.parent_id IS NULL";
+              WHERE t.user_id = ? AND t.status != 'Completed' AND t.parent_id IS NULL";
     $stmt = $conn->prepare($query);
     $stmt->bind_param("i", $user_id);
     $stmt->execute();
@@ -201,9 +205,8 @@ function getCompletionPercentage($user_id, $conn) {
 function getDashboardStats($user_id, $conn) {
     $query = "SELECT 
                 COUNT(CASE WHEN t.parent_id IS NULL THEN 1 END) as total_tasks,
-                COUNT(CASE WHEN t.status = 'Pending' AND t.parent_id IS NULL THEN 1 END) as pending_tasks,
-                COUNT(CASE WHEN t.status = 'Completed' AND t.parent_id IS NULL THEN 1 END) as completed_tasks,
-                COUNT(CASE WHEN t.status = 'In Progress' AND t.parent_id IS NULL THEN 1 END) as in_progress_tasks
+                                COUNT(CASE WHEN t.status != 'Completed' AND t.parent_id IS NULL THEN 1 END) as pending_tasks,
+                                COUNT(CASE WHEN t.status = 'Completed' AND t.parent_id IS NULL THEN 1 END) as completed_tasks
               FROM tasks t
               WHERE t.user_id = ?";
     $stmt = $conn->prepare($query);
@@ -213,6 +216,7 @@ function getDashboardStats($user_id, $conn) {
     
     $stats['completed'] = $stats['completed_tasks'];
     $stats['pending'] = $stats['pending_tasks'];
+    $stats['in_progress_tasks'] = 0;
     $stats['completion_pct'] = $stats['total_tasks'] > 0 
         ? round(($stats['completed_tasks'] / $stats['total_tasks']) * 100) 
         : 0;
@@ -305,8 +309,6 @@ function getStatusColor($status) {
     switch ($status) {
         case 'Completed':
             return 'success';
-        case 'In Progress':
-            return 'info';
         case 'Pending':
             return 'warning';
         default:
@@ -451,7 +453,7 @@ function handleFileUpload($file, $user_id, $conn, $task_id = null, $note_id = nu
     if (move_uploaded_file($file['tmp_name'], $filepath)) {
         $stmt = $conn->prepare("INSERT INTO attachments (user_id, task_id, note_id, file_name, file_path, file_size, file_type) VALUES (?, ?, ?, ?, ?, ?, ?)");
         $relative_path = 'uploads/' . $user_id . '/' . $filename;
-        $stmt->bind_param("iiisssi", $user_id, $task_id, $note_id, $file['name'], $relative_path, $file['size'], $file['type']);
+        $stmt->bind_param("iiissis", $user_id, $task_id, $note_id, $file['name'], $relative_path, $file['size'], $file['type']);
         $stmt->execute();
         
         return ['success' => true, 'id' => $conn->insert_id, 'path' => $relative_path, 'name' => $file['name']];
@@ -539,6 +541,98 @@ function needsOnboarding($user_id, $conn) {
         }
     }
     return true;
+}
+
+// Enhanced onboarding checklist - Get completion status for all 8 steps
+function getOnboardingProgress($user_id, $conn) {
+    $progress = [
+        'semester' => false,
+        'subjects' => false,
+        'task' => false,
+        'task_completed' => false,
+        'pomodoro' => false,
+        'buddy' => false,
+        'dashboard' => false,
+        'calendar' => false
+    ];
+    
+    // Step 1: Create Semester
+    $semesters = getUserSemesters($user_id, $conn);
+    $progress['semester'] = count($semesters) > 0;
+    
+    // Step 2: Add Subjects (need at least 3)
+    if ($progress['semester']) {
+        $total_subjects = 0;
+        foreach ($semesters as $sem) {
+            $subjects = getSemesterSubjects($sem['id'], $conn);
+            $total_subjects += count($subjects);
+        }
+        $progress['subjects'] = $total_subjects >= 3;
+    }
+    
+    // Step 3: Create First Task
+    if ($progress['subjects']) {
+        foreach ($semesters as $sem) {
+            $subjects = getSemesterSubjects($sem['id'], $conn);
+            foreach ($subjects as $sub) {
+                $tasks = getSubjectTasks($sub['id'], $conn);
+                if (count($tasks) > 0) {
+                    $progress['task'] = true;
+                    break 2;
+                }
+            }
+        }
+    }
+    
+    // Step 4: Complete First Task
+    if ($progress['task']) {
+        $stmt = $conn->prepare("SELECT COUNT(*) as cnt FROM tasks t 
+            JOIN subjects s ON t.subject_id = s.id 
+            JOIN semesters sem ON s.semester_id = sem.id 
+            WHERE sem.user_id = ? AND t.status = 'Completed' AND t.parent_id IS NULL");
+        $stmt->bind_param("i", $user_id);
+        $stmt->execute();
+        $result = $stmt->get_result()->fetch_assoc();
+        $progress['task_completed'] = $result['cnt'] > 0;
+    }
+    
+    // Step 5: Use Pomodoro Timer
+    $stmt = $conn->prepare("SELECT COUNT(*) as cnt FROM study_sessions WHERE user_id = ?");
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    $result = $stmt->get_result()->fetch_assoc();
+    $progress['pomodoro'] = $result['cnt'] > 0;
+    
+    // Step 6: Set Up Study Buddy (optional, but checked)
+    if (function_exists('getAcceptedBuddy')) {
+        $buddy = getAcceptedBuddy($user_id, $conn);
+        $progress['buddy'] = !empty($buddy);
+    }
+    
+    // Step 7: Customize Dashboard (check if widgets are customized)
+    if (function_exists('getDashboardWidgets')) {
+        $widgets = getDashboardWidgets($user_id, $conn);
+        $progress['dashboard'] = !empty($widgets) && count($widgets) > 0;
+    } else {
+        // If widget system doesn't exist, consider it done if they've visited dashboard
+        $progress['dashboard'] = true; // Default to true for now
+    }
+    
+    // Step 8: Explore Calendar View (check if they've viewed calendar)
+    // This would require tracking page visits, for now default to true if they have tasks
+    $progress['calendar'] = $progress['task'];
+    
+    // Calculate completion percentage
+    $completed = array_sum($progress);
+    $total = count($progress);
+    $percentage = round(($completed / $total) * 100);
+    
+    return [
+        'steps' => $progress,
+        'completed' => $completed,
+        'total' => $total,
+        'percentage' => $percentage
+    ];
 }
 
 // Function to dismiss onboarding
@@ -651,20 +745,36 @@ function isBuddyBlocked($user_id, $other_id, $conn) {
 
 // Block a buddy
 function blockBuddy($blocker_id, $blocked_id, $conn) {
-    // First unpair if currently paired
-    $conn->query("UPDATE study_buddies SET status = 'unlinked' 
-        WHERE ((requester_id = $blocker_id AND partner_id = $blocked_id) 
-            OR (requester_id = $blocked_id AND partner_id = $blocker_id)) 
-        AND status = 'accepted'");
-    // Decline any pending requests between them
-    $conn->query("UPDATE study_buddies SET status = 'declined' 
-        WHERE ((requester_id = $blocker_id AND partner_id = $blocked_id) 
-            OR (requester_id = $blocked_id AND partner_id = $blocker_id)) 
-        AND status = 'pending'");
-    // Insert block record
-    $stmt = $conn->prepare("INSERT IGNORE INTO buddy_blocks (blocker_id, blocked_id) VALUES (?, ?)");
-    $stmt->bind_param("ii", $blocker_id, $blocked_id);
-    return $stmt->execute();
+    $conn->begin_transaction();
+    try {
+        // First unpair if currently paired
+        $stmt = $conn->prepare("UPDATE study_buddies SET status = 'unlinked'
+            WHERE ((requester_id = ? AND partner_id = ?)
+                OR (requester_id = ? AND partner_id = ?))
+            AND status = 'accepted'");
+        $stmt->bind_param("iiii", $blocker_id, $blocked_id, $blocked_id, $blocker_id);
+        $stmt->execute();
+
+        // Decline any pending requests between them
+        $stmt = $conn->prepare("UPDATE study_buddies SET status = 'declined'
+            WHERE ((requester_id = ? AND partner_id = ?)
+                OR (requester_id = ? AND partner_id = ?))
+            AND status = 'pending'");
+        $stmt->bind_param("iiii", $blocker_id, $blocked_id, $blocked_id, $blocker_id);
+        $stmt->execute();
+
+        // Insert block record
+        $stmt = $conn->prepare("INSERT IGNORE INTO buddy_blocks (blocker_id, blocked_id) VALUES (?, ?)");
+        $stmt->bind_param("ii", $blocker_id, $blocked_id);
+        $ok = $stmt->execute();
+
+        $conn->commit();
+        return $ok;
+    } catch (Throwable $e) {
+        $conn->rollback();
+        error_log('blockBuddy failed: ' . $e->getMessage());
+        return false;
+    }
 }
 
 // Unblock a buddy
@@ -1108,6 +1218,82 @@ function getOverdueTasksCount($user_id, $conn) {
     $stmt->bind_param("i", $user_id);
     $stmt->execute();
     return $stmt->get_result()->fetch_assoc()['cnt'];
+}
+
+// ============================================
+// TASK TEMPLATE FUNCTIONS
+// ============================================
+
+// Get all task templates (user templates + system templates)
+function getTaskTemplates($user_id, $conn) {
+    $stmt = $conn->prepare("SELECT * FROM task_templates 
+        WHERE (user_id = ? OR is_system = 1) 
+        ORDER BY is_system DESC, name ASC");
+    if (!$stmt) return [];
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+}
+
+// Get a single task template
+function getTaskTemplate($template_id, $user_id, $conn) {
+    $stmt = $conn->prepare("SELECT * FROM task_templates 
+        WHERE id = ? AND (user_id = ? OR is_system = 1)");
+    if (!$stmt) return null;
+    $stmt->bind_param("ii", $template_id, $user_id);
+    $stmt->execute();
+    return $stmt->get_result()->fetch_assoc();
+}
+
+// Create a task template
+function createTaskTemplate($user_id, $name, $title, $description, $type, $priority, $is_recurring, $recurrence_type, $conn) {
+    $stmt = $conn->prepare("INSERT INTO task_templates 
+        (user_id, name, title, description, type, priority, is_recurring, recurrence_type) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    if (!$stmt) return false;
+    $stmt->bind_param("isssssis", $user_id, $name, $title, $description, $type, $priority, $is_recurring, $recurrence_type);
+    return $stmt->execute() ? $conn->insert_id : false;
+}
+
+// Update a task template
+function updateTaskTemplate($template_id, $user_id, $name, $title, $description, $type, $priority, $is_recurring, $recurrence_type, $conn) {
+    $stmt = $conn->prepare("UPDATE task_templates 
+        SET name = ?, title = ?, description = ?, type = ?, priority = ?, is_recurring = ?, recurrence_type = ?
+        WHERE id = ? AND user_id = ?");
+    if (!$stmt) return false;
+    $stmt->bind_param("sssssisii", $name, $title, $description, $type, $priority, $is_recurring, $recurrence_type, $template_id, $user_id);
+    return $stmt->execute();
+}
+
+// Delete a task template
+function deleteTaskTemplate($template_id, $user_id, $conn) {
+    $stmt = $conn->prepare("DELETE FROM task_templates WHERE id = ? AND user_id = ? AND is_system = 0");
+    if (!$stmt) return false;
+    $stmt->bind_param("ii", $template_id, $user_id);
+    return $stmt->execute();
+}
+
+// Create task from template
+function createTaskFromTemplate($template_id, $user_id, $subject_id, $deadline, $conn) {
+    $template = getTaskTemplate($template_id, $user_id, $conn);
+    if (!$template) return false;
+    
+    // Replace placeholders in title
+    $title = $template['title'];
+    $title = str_replace('{week}', date('W'), $title);
+    $title = str_replace('{subject}', 'Subject', $title);
+    $title = str_replace('{title}', 'Task', $title);
+    $title = str_replace('{milestone}', 'Milestone', $title);
+    
+    $subject_id_val = $subject_id > 0 ? $subject_id : null;
+    $stmt = $conn->prepare("INSERT INTO tasks 
+        (user_id, subject_id, title, description, type, priority, deadline, is_recurring, recurrence_type) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    if (!$stmt) return false;
+    $stmt->bind_param("iisssssis", $user_id, $subject_id_val, $title, $template['description'], 
+        $template['type'], $template['priority'], $deadline, $template['is_recurring'], $template['recurrence_type']);
+    
+    return $stmt->execute() ? $conn->insert_id : false;
 }
 
 ?>

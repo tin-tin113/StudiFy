@@ -8,6 +8,10 @@ if (session_status() === PHP_SESSION_NONE) {
     ini_set('session.use_strict_mode', 1);
     ini_set('session.cookie_httponly', 1);
     ini_set('session.cookie_samesite', 'Lax');
+    $is_https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (($_SERVER['SERVER_PORT'] ?? null) == 443);
+    if ($is_https) {
+        ini_set('session.cookie_secure', 1);
+    }
     session_start();
 }
 
@@ -22,7 +26,8 @@ $conn = new mysqli($db_host, $db_user, $db_password, $db_name);
 
 // Check connection
 if ($conn->connect_error) {
-    die("Connection Failed: " . $conn->connect_error);
+    error_log('Database connection failed: ' . $conn->connect_error);
+    die('Database connection failed. Please try again later.');
 }
 
 // Set charset to utf8mb4

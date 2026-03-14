@@ -163,11 +163,20 @@ function getCSRFToken() {
 }
 
 // ─── AJAX Task Toggle ───
-function toggleTaskStatus(taskId, baseUrl) {
+function toggleTaskStatus(taskId, baseUrl, nextStatus = '') {
+    const payload = new URLSearchParams({
+        action: 'toggle_status',
+        task_id: String(taskId),
+        csrf_token: getCSRFToken()
+    });
+    if (nextStatus) {
+        payload.append('next_status', nextStatus);
+    }
+
     fetch(baseUrl + 'student/tasks.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
-        body: `action=toggle_status&task_id=${taskId}&csrf_token=${getCSRFToken()}`
+        body: payload.toString()
     })
         .then(res => res.json())
         .then(data => {
@@ -335,6 +344,7 @@ document.addEventListener('DOMContentLoaded', () => {
     LandingNav.init();
     GlobalSearch.init();
     KeyboardShortcuts.init();
+    QuickAdd.init();
     StudifyConfirm.init();
 
     // Initialize tooltips
@@ -542,6 +552,206 @@ const GlobalSearch = {
     }
 };
 
+// ─── Quick Add Task (Ctrl+Q) ───
+const QuickAdd = {
+    modal: null,
+    form: null,
+    
+    init() {
+        // Create quick add modal if it doesn't exist
+        if (!document.getElementById('quickAddModal')) {
+            const modal = document.createElement('div');
+            modal.id = 'quickAddModal';
+            modal.className = 'modal fade';
+            modal.innerHTML = `
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title"><i class="fas fa-bolt"></i> Quick Add Task</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                        </div>
+                        <form id="quickAddForm">
+                            <div class="modal-body">
+                                <input type="hidden" name="action" value="add">
+                                <input type="hidden" name="type" value="Assignment">
+                                <input type="hidden" name="description" value="">
+                                <input type="hidden" name="is_recurring" value="0">
+                                <input type="hidden" name="csrf_token" id="quickAddCSRF" value="">
+                                
+                                <div class="mb-3">
+                                    <label class="form-label">Task Title <span class="text-danger">*</span></label>
+                                    <input type="text" class="form-control" name="title" placeholder="e.g., Complete assignment" required autofocus>
+                                </div>
+                                
+                                <div class="row">
+                                    <div class="col-6 mb-3">
+                                        <label class="form-label">Priority</label>
+                                        <select class="form-select" name="priority">
+                                            <option value="Medium" selected>Medium</option>
+                                            <option value="High">High</option>
+                                            <option value="Low">Low</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-6 mb-3">
+                                        <label class="form-label">Deadline <span class="text-danger">*</span></label>
+                                        <input type="datetime-local" class="form-control" name="deadline" required>
+                                    </div>
+                                </div>
+                                
+                                <div class="mb-2">
+                                    <label class="form-label">Subject <small class="text-muted">(optional)</small></label>
+                                    <select class="form-select" name="subject_id" id="quickAddSubject">
+                                        <option value="">— None —</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                <button type="submit" class="btn btn-primary"><i class="fas fa-plus"></i> Add Task</button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            `;
+            document.body.appendChild(modal);
+            this.modal = new bootstrap.Modal(modal);
+            this.form = document.getElementById('quickAddForm');
+            
+            // Set CSRF token
+            const csrfInput = this.form.querySelector('#quickAddCSRF');
+            if (csrfInput) {
+                const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+                csrfInput.value = csrfToken;
+            }
+            
+            // Set default deadline to tomorrow at 9 AM
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            tomorrow.setHours(9, 0, 0, 0);
+            const deadlineInput = this.form.querySelector('input[name="deadline"]');
+            if (deadlineInput) {
+                deadlineInput.value = tomorrow.toISOString().slice(0, 16);
+            }
+            
+            // Load subjects
+            this.loadSubjects();
+            
+            // Handle form submission
+            this.form.addEventListener('submit', (e) => this.handleSubmit(e));
+        } else {
+            this.modal = bootstrap.Modal.getInstance(document.getElementById('quickAddModal'));
+            this.form = document.getElementById('quickAddForm');
+        }
+    },
+    
+    loadSubjects() {
+        const baseUrl = document.querySelector('meta[name="base-url"]')?.content || '../';
+        fetch(baseUrl + 'student/subjects.php?action=list')
+            .then(r => r.json())
+            .then(data => {
+                if (data.success && data.subjects) {
+                    const select = document.getElementById('quickAddSubject');
+                    select.innerHTML = '<option value="">— None —</option>';
+                    data.subjects.forEach(sub => {
+                        const option = document.createElement('option');
+                        option.value = sub.id;
+                        option.textContent = sub.name;
+                        select.appendChild(option);
+                    });
+                }
+            })
+            .catch(() => {});
+    },
+    
+    handleSubmit(e) {
+        e.preventDefault();
+        const formData = new FormData(this.form);
+        const baseUrl = document.querySelector('meta[name="base-url"]')?.content || '../';
+        
+        // Add CSRF token if not already in form
+        if (!formData.has('csrf_token')) {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+            if (csrfToken) {
+                formData.append('csrf_token', csrfToken);
+            }
+        }
+        
+        // Debug: Log form data
+        console.log('Quick Add - Submitting:', {
+            title: formData.get('title'),
+            deadline: formData.get('deadline'),
+            priority: formData.get('priority'),
+            has_csrf: formData.has('csrf_token')
+        });
+        
+        StudifyToast.info('Adding Task...', 'Please wait');
+        
+        fetch(baseUrl + 'student/tasks.php', {
+            method: 'POST',
+            headers: {
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: formData
+        })
+        .then(r => {
+            // Treat non-2xx as hard failure
+            if (!r.ok) {
+                throw new Error('Request failed with status ' + r.status);
+            }
+
+            const contentType = r.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+                return r.json();
+            }
+
+            // Fallback for HTML responses (e.g., validation errors rendered as full page)
+            return r.text().then(text => {
+                const success = text.includes('Task added successfully');
+                return {
+                    success,
+                    message: success ? 'Task added successfully' : (text.trim() || 'Failed to add task')
+                };
+            });
+        })
+        .then(data => {
+            console.log('Quick Add - Response:', data);
+            if (data.success) {
+                StudifyToast.success('Task Added', data.message || 'Task created successfully');
+                this.modal.hide();
+                this.form.reset();
+
+                // Stay on the current page; only refresh tasks list if we are already there
+                if (window.location.pathname.includes('tasks.php')) {
+                    setTimeout(() => window.location.reload(), 400);
+                }
+            } else {
+                StudifyToast.error('Error', data.message || 'Failed to add task');
+                console.error('Quick Add - Error:', data.message);
+            }
+        })
+        .catch((error) => {
+            console.error('Quick add error:', error);
+            StudifyToast.error('Error', 'Network error. Please try again.');
+        });
+    },
+    
+    open() {
+        this.init();
+        // Update CSRF token each time modal opens
+        const csrfInput = this.form.querySelector('#quickAddCSRF');
+        if (csrfInput) {
+            const csrfToken = document.querySelector('meta[name="csrf-token"]')?.content || '';
+            csrfInput.value = csrfToken;
+        }
+        this.modal.show();
+        // Focus on title input
+        setTimeout(() => {
+            const titleInput = this.form.querySelector('input[name="title"]');
+            if (titleInput) titleInput.focus();
+        }, 300);
+    }
+};
+
 // ─── Keyboard Shortcuts ───
 const KeyboardShortcuts = {
     init() {
@@ -569,6 +779,13 @@ const KeyboardShortcuts = {
             if (isInput) return;
 
             const baseUrl = document.querySelector('meta[name="base-url"]')?.content || '../';
+
+            // Ctrl+Q / Cmd+Q → Quick Add Task
+            if ((e.ctrlKey || e.metaKey) && e.key === 'q') {
+                e.preventDefault();
+                QuickAdd.open();
+                return;
+            }
 
             // N → New task (go to tasks page)
             if (e.key === 'n' || e.key === 'N') {

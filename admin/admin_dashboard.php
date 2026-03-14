@@ -37,7 +37,7 @@ if ($row = $result->fetch_assoc()) $completed_tasks = $row['count'];
 
 // Pending tasks count
 $pending_tasks = 0;
-$result = $conn->query("SELECT COUNT(*) as count FROM tasks WHERE status = 'Pending'");
+$result = $conn->query("SELECT COUNT(*) as count FROM tasks WHERE status != 'Completed'");
 if ($row = $result->fetch_assoc()) $pending_tasks = $row['count'];
 
 // New users this month
@@ -148,15 +148,11 @@ $completion_rate = $total_tasks > 0 ? round(($completed_tasks / $total_tasks) * 
                             <div class="progress-bar bg-success" style="width: <?php echo $completion_rate; ?>%"></div>
                         </div>
                         <div class="row text-center">
-                            <div class="col-4">
+                            <div class="col-6">
                                 <div class="fw-700" style="font-size: 20px; color: var(--warning);"><?php echo $pending_tasks; ?></div>
                                 <small class="text-muted">Pending</small>
                             </div>
-                            <div class="col-4">
-                                <div class="fw-700" style="font-size: 20px; color: var(--info);"><?php echo $total_tasks - $pending_tasks - $completed_tasks; ?></div>
-                                <small class="text-muted">In Progress</small>
-                            </div>
-                            <div class="col-4">
+                            <div class="col-6">
                                 <div class="fw-700" style="font-size: 20px; color: var(--success);"><?php echo $completed_tasks; ?></div>
                                 <small class="text-muted">Completed</small>
                             </div>

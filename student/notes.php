@@ -199,13 +199,21 @@ $total_notes = $total_stmt->get_result()->fetch_assoc()['c'];
                                 </form>
                             </div>
                         </div>
-                        <p class="text-muted mb-2" style="font-size: 12.5px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">
+                        <p class="text-muted mb-2" style="font-size: 12.5px; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;">
                             <?php echo htmlspecialchars(strip_tags($note['content'] ?: 'No content')); ?>
                         </p>
-                        <div class="d-flex justify-content-between align-items-center" style="font-size: 11px; color: var(--text-muted);">
-                            <span class="badge bg-<?php echo ($note['subject_id'] ? 'primary' : 'secondary'); ?>" style="font-size: 10px;"><?php echo htmlspecialchars($note['subject_name']); ?></span>
-                            <span><i class="fas fa-clock"></i> <?php echo formatDate($note['updated_at']); ?></span>
-                        </div>
+                            <div class="d-flex justify-content-between align-items-center" style="font-size:11px;color:var(--text-muted);">
+                                <span class="badge bg-<?php echo ($note['subject_id'] ? 'primary' : 'secondary'); ?>" style="font-size:10px;"><?php echo htmlspecialchars($note['subject_name']); ?></span>
+                                <span><i class="fas fa-clock"></i> <?php echo formatDate($note['updated_at']); ?></span>
+                            </div>
+                            <!-- Note Attachments -->
+                            <div class="note-attachments" id="att-note-<?php echo $note['id']; ?>" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;"></div>
+                            <div style="margin-top:4px;" onclick="event.stopPropagation();">
+                                <label title="Attach a file" style="cursor:pointer;font-size:11px;color:var(--text-muted);">
+                                    <i class="fas fa-paperclip"></i> Attach
+                                    <input type="file" style="display:none;" onchange="uploadNoteAttachment(<?php echo $note['id']; ?>, this)">
+                                </label>
+                            </div>
                     </div>
                 </div>
             </div>
@@ -230,12 +238,19 @@ $total_notes = $total_stmt->get_result()->fetch_assoc()['c'];
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body">
-                <div class="mb-2">
-                    <span class="badge bg-primary" id="viewNoteSubject"></span>
-                    <small class="text-muted ms-2" id="viewNoteDate"></small>
+                <div class="mb-2 d-flex align-items-center justify-content-between">
+                    <div>
+                        <span class="badge bg-primary" id="viewNoteSubject"></span>
+                        <small class="text-muted ms-2" id="viewNoteDate"></small>
+                    </div>
                 </div>
                 <hr>
-                <div id="viewNoteContent" class="ql-snow"><div class="ql-editor" style="padding: 0; font-size: 14px; line-height: 1.7;"></div></div>
+                <div id="viewNoteContent" class="ql-snow"><div class="ql-editor" style="padding:0;font-size:14px;line-height:1.7;"></div></div>
+                <!-- Attachments in view modal -->
+                <div id="viewNoteAttachments" style="margin-top:14px;border-top:1px solid var(--border-color);padding-top:12px;display:none;">
+                    <div style="font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:8px;"><i class="fas fa-paperclip"></i> Attachments</div>
+                    <div id="viewNoteAttList" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+                </div>
             </div>
         </div>
     </div>
@@ -459,6 +474,36 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
+function sanitizeRichHtml(input) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(String(input || ''), 'text/html');
+
+    doc.querySelectorAll('script, iframe, object, embed, form, meta, link').forEach(el => el.remove());
+
+    doc.querySelectorAll('*').forEach(el => {
+        [...el.attributes].forEach(attr => {
+            const name = attr.name.toLowerCase();
+            const value = (attr.value || '').trim().toLowerCase();
+
+            if (name.startsWith('on')) {
+                el.removeAttribute(attr.name);
+                return;
+            }
+
+            if ((name === 'src' || name === 'href') && value.startsWith('javascript:')) {
+                el.removeAttribute(attr.name);
+                return;
+            }
+
+            if (name === 'srcdoc') {
+                el.removeAttribute(attr.name);
+            }
+        });
+    });
+
+    return doc.body.innerHTML;
+}
+
 function viewNote(note) {
     document.getElementById('viewNoteTitle').textContent = note.title;
     document.getElementById('viewNoteSubject').textContent = note.subject_name || 'General';
@@ -467,22 +512,134 @@ function viewNote(note) {
 
     const contentEl = document.querySelector('#viewNoteContent .ql-editor');
     const raw = note.content || '';
-
     if (!raw || raw.trim() === '') {
-        contentEl.innerHTML = '<p style="color: var(--text-muted);"><em>No content.</em></p>';
+        contentEl.innerHTML = '<p style="color:var(--text-muted);"><em>No content.</em></p>';
     } else if (raw.charAt(0) === '<') {
-        // HTML content from Quill
-        contentEl.innerHTML = raw;
+        contentEl.innerHTML = sanitizeRichHtml(raw);
     } else {
-        // Legacy plain text / markdown content
-        contentEl.innerHTML = '<p>' + raw.replace(/\n/g, '</p><p>') + '</p>';
+        const escaped = raw
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+        contentEl.innerHTML = '<p>' + escaped.replace(/\n/g, '</p><p>') + '</p>';
     }
-
-    // Sanitize: remove dangerous tags
     contentEl.querySelectorAll('script,iframe,object,embed,form').forEach(el => el.remove());
+
+    // Load attachments in modal
+    const attSection = document.getElementById('viewNoteAttachments');
+    const attList    = document.getElementById('viewNoteAttList');
+    const BASE_URL   = '<?php echo BASE_URL; ?>';
+    fetch(BASE_URL + 'student/attachments.php?action=list&note_id=' + note.id)
+        .then(r => r.json())
+        .then(data => {
+            if (data.success && data.attachments.length > 0) {
+                attList.innerHTML = '';
+                data.attachments.forEach(att => {
+                    const icon = getFiletypeIcon(att.file_type);
+                    const chip = document.createElement('a');
+                    chip.href = att.url;
+                    chip.target = '_blank';
+                    chip.style.cssText = 'display:inline-flex;align-items:center;gap:6px;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:6px;padding:6px 10px;font-size:12px;text-decoration:none;color:var(--text-primary);';
+                    const iconEl = document.createElement('i');
+                    iconEl.className = `fas ${icon}`;
+                    iconEl.style.color = 'var(--primary)';
+                    const nameEl = document.createElement('span');
+                    nameEl.textContent = att.file_name || 'attachment';
+                    const sizeEl = document.createElement('span');
+                    sizeEl.style.cssText = 'color:var(--text-muted);font-size:10px;';
+                    sizeEl.textContent = formatBytes(att.file_size);
+                    chip.appendChild(iconEl);
+                    chip.appendChild(nameEl);
+                    chip.appendChild(sizeEl);
+                    attList.appendChild(chip);
+                });
+                attSection.style.display = 'block';
+            } else {
+                attSection.style.display = 'none';
+            }
+        });
 
     new bootstrap.Modal(document.getElementById('viewNoteModal')).show();
 }
+
+function getFiletypeIcon(mime) {
+    if (!mime) return 'fa-file';
+    if (mime.startsWith('image/')) return 'fa-image';
+    if (mime === 'application/pdf') return 'fa-file-pdf';
+    if (mime.includes('word')) return 'fa-file-word';
+    if (mime.includes('excel') || mime.includes('spreadsheet')) return 'fa-file-excel';
+    if (mime.includes('powerpoint') || mime.includes('presentation')) return 'fa-file-powerpoint';
+    if (mime.includes('zip')) return 'fa-file-archive';
+    if (mime.startsWith('text/')) return 'fa-file-alt';
+    return 'fa-file';
+}
+
+function formatBytes(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+    return (bytes/1024/1024).toFixed(1) + ' MB';
+}
+
+function uploadNoteAttachment(noteId, input) {
+    if (!input.files.length) return;
+    const file = input.files[0];
+    const fd   = new FormData();
+    fd.append('action',    'upload');
+    fd.append('note_id',   noteId);
+    fd.append('file',      file);
+    fd.append('csrf_token', getCSRFToken());
+    StudifyToast.info('Uploading…', file.name);
+    const BASE_URL = '<?php echo BASE_URL; ?>';
+    fetch(BASE_URL + 'student/attachments.php', { method:'POST', body: fd })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                StudifyToast.success('Uploaded', data.attachment.file_name);
+                loadNoteAttachments(noteId);
+            } else {
+                StudifyToast.error('Upload Failed', data.message);
+            }
+        });
+    input.value = '';
+}
+
+function loadNoteAttachments(noteId) {
+    const container = document.getElementById('att-note-' + noteId);
+    if (!container) return;
+    const BASE_URL = '<?php echo BASE_URL; ?>';
+    fetch(BASE_URL + 'student/attachments.php?action=list&note_id=' + noteId)
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                container.innerHTML = '';
+                data.attachments.forEach(att => {
+                    const icon = getFiletypeIcon(att.file_type);
+                    const chip = document.createElement('div');
+                    chip.style.cssText = 'display:inline-flex;align-items:center;gap:4px;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:5px;padding:3px 7px;font-size:10px;max-width:150px;';
+                    const iconEl = document.createElement('i');
+                    iconEl.className = `fas ${icon}`;
+                    iconEl.style.cssText = 'color:var(--primary);flex-shrink:0;';
+                    const textEl = document.createElement('span');
+                    textEl.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
+                    textEl.title = att.file_name || 'attachment';
+                    textEl.textContent = att.file_name || 'attachment';
+                    chip.appendChild(iconEl);
+                    chip.appendChild(textEl);
+                    container.appendChild(chip);
+                });
+            }
+        });
+}
+
+// Load note attachments on page load
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.note-attachments').forEach(el => {
+        const noteId = el.id.replace('att-note-', '');
+        loadNoteAttachments(parseInt(noteId));
+    });
+});
 
 function fillEditNote(note) {
     document.getElementById('editNoteId').value = note.id;
@@ -492,7 +649,7 @@ function fillEditNote(note) {
     if (editQuill) {
         if (raw.charAt(0) === '<') {
             // HTML content — load into Quill via clipboard
-            editQuill.root.innerHTML = raw;
+            editQuill.clipboard.dangerouslyPasteHTML(sanitizeRichHtml(raw));
         } else {
             // Legacy plain text — insert as text
             editQuill.setText(raw);

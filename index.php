@@ -109,7 +109,7 @@ if (isset($_SESSION['user_id'])) {
                                 </div>
                                 <div class="preview-stat-card">
                                     <div class="preview-stat-icon" style="background:var(--warning-light);color:var(--warning);"><i class="fas fa-hourglass-half"></i></div>
-                                    <div><strong>8</strong><small>In Progress</small></div>
+                                    <div><strong>8</strong><small>Pending</small></div>
                                 </div>
                                 <div class="preview-stat-card">
                                     <div class="preview-stat-icon" style="background:var(--info-light);color:var(--info);"><i class="fas fa-fire"></i></div>

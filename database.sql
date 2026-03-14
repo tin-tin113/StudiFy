@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     deadline DATETIME NOT NULL,
     priority ENUM('Low', 'Medium', 'High') DEFAULT 'Medium',
     type ENUM('Assignment', 'Quiz', 'Project', 'Exam', 'Report', 'Other') DEFAULT 'Assignment',
-    status ENUM('Pending', 'In Progress', 'Completed') DEFAULT 'Pending',
+    status ENUM('Pending', 'Completed') DEFAULT 'Pending',
     is_recurring TINYINT(1) DEFAULT 0,
     recurrence_type ENUM('Daily', 'Weekly', 'Monthly') DEFAULT NULL,
     recurrence_end DATE DEFAULT NULL,
@@ -135,6 +135,10 @@ CREATE TABLE IF NOT EXISTS attachments (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE,
     FOREIGN KEY (note_id) REFERENCES notes(id) ON DELETE CASCADE,
+    CONSTRAINT chk_attachments_exactly_one_target CHECK (
+        (task_id IS NOT NULL AND note_id IS NULL) OR
+        (task_id IS NULL AND note_id IS NOT NULL)
+    ),
     INDEX idx_task_id (task_id),
     INDEX idx_note_id (note_id),
     INDEX idx_user_id (user_id)
@@ -177,11 +181,30 @@ CREATE TABLE IF NOT EXISTS study_buddies (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (requester_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (partner_id) REFERENCES users(id) ON DELETE CASCADE,
-    UNIQUE KEY unique_pair (requester_id, partner_id),
+    UNIQUE KEY unique_pair_unordered ((LEAST(requester_id,partner_id)), (GREATEST(requester_id,partner_id))),
     INDEX idx_requester (requester_id),
     INDEX idx_partner (partner_id),
     INDEX idx_invite_code (invite_code),
     INDEX idx_status (status)
+);
+
+-- Task Templates (user + system templates)
+CREATE TABLE IF NOT EXISTS task_templates (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    type ENUM('Assignment', 'Quiz', 'Project', 'Exam', 'Report', 'Other') DEFAULT 'Assignment',
+    priority ENUM('Low', 'Medium', 'High') DEFAULT 'Medium',
+    is_recurring TINYINT(1) DEFAULT 0,
+    recurrence_type ENUM('Daily', 'Weekly', 'Monthly') DEFAULT NULL,
+    is_system TINYINT(1) DEFAULT 0 COMMENT 'System templates available to all users',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_user_id (user_id),
+    INDEX idx_is_system (is_system)
 );
 
 -- Study Buddy Nudges
@@ -227,7 +250,7 @@ CREATE TABLE IF NOT EXISTS activity_log (
 -- ALTER TABLE tasks ADD COLUMN recurrence_type ENUM('Daily', 'Weekly', 'Monthly') DEFAULT NULL AFTER is_recurring;
 -- ALTER TABLE tasks ADD COLUMN recurrence_end DATE DEFAULT NULL AFTER recurrence_type;
 -- ALTER TABLE tasks ADD COLUMN position INT DEFAULT 0 AFTER recurrence_end;
--- ALTER TABLE tasks MODIFY COLUMN status ENUM('Pending', 'In Progress', 'Completed') DEFAULT 'Pending';
+-- ALTER TABLE tasks MODIFY COLUMN status ENUM('Pending', 'Completed') DEFAULT 'Pending';
 -- ALTER TABLE tasks MODIFY COLUMN type ENUM('Assignment', 'Quiz', 'Project', 'Exam', 'Report', 'Other') DEFAULT 'Assignment';
 -- ALTER TABLE study_sessions ADD COLUMN task_id INT DEFAULT NULL AFTER user_id;
 -- ALTER TABLE study_sessions ADD COLUMN subject_id INT DEFAULT NULL AFTER task_id;
@@ -362,3 +385,36 @@ CREATE TABLE IF NOT EXISTS notification_preferences (
 -- ============================================
 -- CREATE TABLE IF NOT EXISTS notifications (...);
 -- CREATE TABLE IF NOT EXISTS notification_preferences (...);
+
+-- ============================================
+-- v5.0 – Dashboard Widgets & Study Streak
+-- ============================================
+
+-- Dashboard Widget Preferences (per-user widget order & visibility)
+CREATE TABLE IF NOT EXISTS dashboard_widgets (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    widget_key VARCHAR(50) NOT NULL,
+    position INT DEFAULT 0,
+    is_visible TINYINT(1) DEFAULT 1,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_widget (user_id, widget_key),
+    INDEX idx_user_id (user_id)
+);
+
+-- User Achievements / Badges
+CREATE TABLE IF NOT EXISTS user_achievements (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    achievement_key VARCHAR(100) NOT NULL,
+    unlocked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    UNIQUE KEY unique_achievement (user_id, achievement_key),
+    INDEX idx_user_id (user_id)
+);
+
+-- ============================================
+-- Migration queries for v5.0:
+-- ============================================
+-- CREATE TABLE IF NOT EXISTS dashboard_widgets (...);
+-- CREATE TABLE IF NOT EXISTS user_achievements (...);

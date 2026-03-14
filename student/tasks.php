@@ -18,59 +18,100 @@ $page_title = 'Tasks';
 $user_id = getCurrentUserId();
 $subject_id = intval($_GET['subject_id'] ?? 0);
 $status_filter = $_GET['status'] ?? '';
+if ($status_filter === 'In Progress') {
+    $status_filter = 'Pending';
+}
 $error = '';
 $success = '';
 
-// Handle AJAX requests
+// Handle AJAX requests (toggle_status and delete only - add/edit handled below)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WITH'])) {
-    header('Content-Type: application/json');
-    // CSRF validation for AJAX
-    if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
-        echo json_encode(['success' => false, 'message' => 'Invalid security token']);
-        exit();
-    }
     $action = $_POST['action'] ?? '';
-    $task_id = intval($_POST['task_id'] ?? 0);
     
-    if ($action === 'toggle_status' && $task_id > 0) {
-        $query = "SELECT t.status FROM tasks t WHERE t.id = ? AND t.user_id = ?";
-        $stmt = $conn->prepare($query);
-        $stmt->bind_param("ii", $task_id, $user_id);
-        $stmt->execute();
-        $result = $stmt->get_result();
+    // Only handle toggle_status and delete here; let 'add' and 'edit' fall through to the main POST handler
+    if ($action === 'toggle_status' || $action === 'delete') {
+        header('Content-Type: application/json');
+        // CSRF validation for AJAX
+        if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
+            echo json_encode(['success' => false, 'message' => 'Invalid security token']);
+            exit();
+        }
+        $task_id = intval($_POST['task_id'] ?? 0);
         
-        if ($row = $result->fetch_assoc()) {
-            $new_status = ($row['status'] === 'Completed') ? 'Pending' : 'Completed';
-            $update = $conn->prepare("UPDATE tasks SET status = ? WHERE id = ?");
-            $update->bind_param("si", $new_status, $task_id);
-            $update->execute();
-            echo json_encode(['success' => true, 'message' => "Task marked as $new_status"]);
-        } else {
-            echo json_encode(['success' => false, 'message' => 'Task not found']);
+        if ($action === 'toggle_status' && $task_id > 0) {
+            $query = "SELECT t.status FROM tasks t WHERE t.id = ? AND t.user_id = ?";
+            $stmt = $conn->prepare($query);
+            $stmt->bind_param("ii", $task_id, $user_id);
+            $stmt->execute();
+            $result = $stmt->get_result();
+            
+            if ($row = $result->fetch_assoc()) {
+                $allowed_statuses = ['Pending', 'Completed'];
+                $requested_status = trim($_POST['next_status'] ?? '');
+
+                // Backward compatibility: map old "In Progress" requests to "Pending"
+                if ($requested_status === 'In Progress') {
+                    $requested_status = 'Pending';
+                }
+
+                if (!empty($requested_status) && in_array($requested_status, $allowed_statuses, true)) {
+                    $new_status = $requested_status;
+                } else {
+                    // Legacy toggle behavior for callers that don't pass next_status
+                    $new_status = ($row['status'] === 'Completed') ? 'Pending' : 'Completed';
+                }
+
+                if ($new_status === $row['status']) {
+                    echo json_encode(['success' => true, 'message' => "Task remains $new_status"]);
+                    exit();
+                }
+
+                $update = $conn->prepare("UPDATE tasks SET status = ? WHERE id = ?");
+                $update->bind_param("si", $new_status, $task_id);
+                $update->execute();
+                echo json_encode(['success' => true, 'message' => "Task marked as $new_status"]);
+            } else {
+                echo json_encode(['success' => false, 'message' => 'Task not found']);
+            }
+            exit();
         }
+        
+        if ($action === 'delete' && $task_id > 0) {
+            $query = "DELETE FROM tasks WHERE id = ? AND user_id = ?";
+            $stmt = $conn->prepare($query);
+            $stmt->bind_param("ii", $task_id, $user_id);
+            if ($stmt->execute()) {
+                echo json_encode(['success' => true]);
+            } else {
+                echo json_encode(['success' => false, 'message' => 'Error deleting task']);
+            }
+            exit();
+        }
+        
+        echo json_encode(['success' => false, 'message' => 'Invalid action']);
         exit();
     }
-    
-    if ($action === 'delete' && $task_id > 0) {
-        $query = "DELETE FROM tasks WHERE id = ? AND user_id = ?";
-        $stmt = $conn->prepare($query);
-        $stmt->bind_param("ii", $task_id, $user_id);
-        if ($stmt->execute()) {
-            echo json_encode(['success' => true]);
-        } else {
-            echo json_encode(['success' => false, 'message' => 'Error deleting task']);
-        }
-        exit();
-    }
-    
-    echo json_encode(['success' => false, 'message' => 'Invalid action']);
-    exit();
 }
 
 // Handle form submissions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    requireCSRF();
+    // Check CSRF but don't exit immediately - log the error for debugging
+    if (!validateCSRFToken()) {
+        error_log("CSRF Error in tasks.php: token validation failed");
+        if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest') {
+            header('Content-Type: application/json');
+            http_response_code(403);
+            echo json_encode(['success' => false, 'message' => 'Invalid security token. Please refresh the page.']);
+            exit();
+        }
+        $_SESSION['message'] = 'Security token expired. Please try again.';
+        $_SESSION['message_type'] = 'error';
+        header("Location: tasks.php");
+        exit();
+    }
+    
     $action = $_POST['action'] ?? '';
+    $is_ajax = !empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) === 'xmlhttprequest';
     
     if ($action === 'add') {
         $subj_id = intval($_POST['subject_id'] ?? 0);
@@ -80,37 +121,99 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $priority = sanitize($_POST['priority'] ?? 'Medium');
         $deadline = $_POST['deadline'] ?? '';
         $is_recurring = intval($_POST['is_recurring'] ?? 0);
-        $recurrence_type = sanitize($_POST['recurrence_type'] ?? '');
-        $recurrence_end = !empty($_POST['recurrence_end']) ? $_POST['recurrence_end'] : null;
+        // Only keep recurrence metadata when recurrence is enabled to avoid DB truncation errors
+        $recurrence_type = $is_recurring ? sanitize($_POST['recurrence_type'] ?? '') : null;
+        $recurrence_end = ($is_recurring && !empty($_POST['recurrence_end'])) ? $_POST['recurrence_end'] : null;
         $subj_id_val = $subj_id > 0 ? $subj_id : null;
         
         if (empty($title) || empty($deadline)) {
-            $error = 'Title and deadline are required.';
-        } else {
-            $stmt = $conn->prepare("INSERT INTO tasks (user_id, subject_id, title, description, type, priority, deadline, is_recurring, recurrence_type, recurrence_end) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $stmt->bind_param("iisssssiss", $user_id, $subj_id_val, $title, $description, $type, $priority, $deadline, $is_recurring, $recurrence_type, $recurrence_end);
-            if ($stmt->execute()) {
-                // Generate recurring copies
-                if ($is_recurring && !empty($recurrence_type) && !empty($recurrence_end)) {
-                    $current = new DateTime($deadline);
-                    $end = new DateTime($recurrence_end);
-                    while (true) {
-                        if ($recurrence_type === 'Daily') $current->modify('+1 day');
-                        elseif ($recurrence_type === 'Weekly') $current->modify('+1 week');
-                        elseif ($recurrence_type === 'Monthly') $current->modify('+1 month');
-                        if ($current > $end) break;
-                        $next_deadline = $current->format('Y-m-d H:i:s');
-                        $ins = $conn->prepare("INSERT INTO tasks (user_id, subject_id, title, description, type, priority, deadline, is_recurring, recurrence_type, recurrence_end) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-                        $ins->bind_param("iisssssiss", $user_id, $subj_id_val, $title, $description, $type, $priority, $next_deadline, $is_recurring, $recurrence_type, $recurrence_end);
-                        $ins->execute();
-                    }
-                }
-                $_SESSION['message'] = 'Task added successfully!' . ($is_recurring ? ' Recurring copies created.' : '');
-                $_SESSION['message_type'] = 'success';
-                header('Location: tasks.php' . ($subject_id ? '?subject_id=' . $subject_id : ''));
+            if ($is_ajax) {
+                header('Content-Type: application/json');
+                echo json_encode(['success' => false, 'message' => 'Title and deadline are required.']);
                 exit();
             }
-            else { $error = 'Error adding task.'; }
+            $error = 'Title and deadline are required.';
+        } else {
+            // Convert deadline to proper datetime format if needed
+            // datetime-local format: YYYY-MM-DDTHH:MM -> YYYY-MM-DD HH:MM:SS
+            if (strlen($deadline) === 16 && strpos($deadline, 'T') !== false) {
+                $deadline = str_replace('T', ' ', $deadline) . ':00';
+            }
+            
+            // Validate deadline format
+            $deadline_dt = DateTime::createFromFormat('Y-m-d H:i:s', $deadline);
+            if (!$deadline_dt) {
+                // Try alternative format
+                $deadline_dt = DateTime::createFromFormat('Y-m-d H:i', $deadline);
+                if ($deadline_dt) {
+                    $deadline = $deadline_dt->format('Y-m-d H:i:s');
+                } else {
+                    if ($is_ajax) {
+                        header('Content-Type: application/json');
+                        echo json_encode(['success' => false, 'message' => 'Invalid deadline format.']);
+                        exit();
+                    }
+                    $error = 'Invalid deadline format.';
+                }
+            }
+            
+            if (empty($error)) {
+                $stmt = $conn->prepare("INSERT INTO tasks (user_id, subject_id, title, description, type, priority, deadline, is_recurring, recurrence_type, recurrence_end) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                if (!$stmt) {
+                    error_log('Error adding task (prepare): ' . $conn->error);
+                    $error_msg = 'Unable to save task right now. Please try again.';
+                    if ($is_ajax) {
+                        header('Content-Type: application/json');
+                        echo json_encode(['success' => false, 'message' => $error_msg]);
+                        exit();
+                    }
+                    $error = $error_msg;
+                } else {
+                    $stmt->bind_param("iisssssiss", $user_id, $subj_id_val, $title, $description, $type, $priority, $deadline, $is_recurring, $recurrence_type, $recurrence_end);
+                    if ($stmt->execute()) {
+                        // Generate recurring copies
+                        if ($is_recurring && !empty($recurrence_type) && !empty($recurrence_end)) {
+                            $current = new DateTime($deadline);
+                            $end = new DateTime($recurrence_end);
+                            while (true) {
+                                if ($recurrence_type === 'Daily') $current->modify('+1 day');
+                                elseif ($recurrence_type === 'Weekly') $current->modify('+1 week');
+                                elseif ($recurrence_type === 'Monthly') $current->modify('+1 month');
+                                if ($current > $end) break;
+                                $next_deadline = $current->format('Y-m-d H:i:s');
+                                $ins = $conn->prepare("INSERT INTO tasks (user_id, subject_id, title, description, type, priority, deadline, is_recurring, recurrence_type, recurrence_end) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                                $ins->bind_param("iisssssiss", $user_id, $subj_id_val, $title, $description, $type, $priority, $next_deadline, $is_recurring, $recurrence_type, $recurrence_end);
+                                $ins->execute();
+                            }
+                        }
+                        
+                        // Return JSON for AJAX requests
+                        if ($is_ajax) {
+                            header('Content-Type: application/json');
+                            echo json_encode([
+                                'success' => true, 
+                                'message' => 'Task added successfully!' . ($is_recurring ? ' Recurring copies created.' : '')
+                            ]);
+                            exit();
+                        }
+                        
+                        // Regular form submission - redirect
+                        $_SESSION['message'] = 'Task added successfully!' . ($is_recurring ? ' Recurring copies created.' : '');
+                        $_SESSION['message_type'] = 'success';
+                        header('Location: tasks.php' . ($subject_id ? '?subject_id=' . $subject_id : ''));
+                        exit();
+                    } else { 
+                        error_log('Error adding task (execute): ' . $stmt->error);
+                        $error_msg = 'Unable to save task right now. Please try again.';
+                        if ($is_ajax) {
+                            header('Content-Type: application/json');
+                            echo json_encode(['success' => false, 'message' => $error_msg]);
+                            exit();
+                        }
+                        $error = $error_msg; 
+                    }
+                }
+            }
         }
     } elseif ($action === 'edit') {
         $task_id = intval($_POST['task_id'] ?? 0);
@@ -119,6 +222,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $type = sanitize($_POST['type'] ?? 'Assignment');
         $priority = sanitize($_POST['priority'] ?? 'Medium');
         $status = sanitize($_POST['status'] ?? 'Pending');
+        if (!in_array($status, ['Pending', 'Completed'], true)) {
+            $status = 'Pending';
+        }
         $deadline = $_POST['deadline'] ?? '';
         
         if (empty($title) || $task_id <= 0 || empty($deadline)) {
@@ -165,7 +271,6 @@ foreach ($semesters as $sem) {
 $status_counts = getTaskStatusCounts($user_id, $conn);
 $count_all = intval($status_counts['total']);
 $count_pending = intval($status_counts['pending']);
-$count_progress = intval($status_counts['in_progress']);
 $count_done = intval($status_counts['completed']);
 ?>
 <?php include '../includes/header.php'; ?>
@@ -193,9 +298,6 @@ $count_done = intval($status_counts['completed']);
                     </a>
                     <a href="tasks.php?status=Pending" class="btn btn-sm <?php echo $status_filter === 'Pending' ? 'btn-warning' : 'btn-secondary'; ?>">
                         Pending <span class="badge bg-light text-dark ms-1"><?php echo $count_pending; ?></span>
-                    </a>
-                    <a href="tasks.php?status=In Progress" class="btn btn-sm <?php echo $status_filter === 'In Progress' ? 'btn-info' : 'btn-secondary'; ?>">
-                        In Progress <span class="badge bg-light text-dark ms-1"><?php echo $count_progress; ?></span>
                     </a>
                     <a href="tasks.php?status=Completed" class="btn btn-sm <?php echo $status_filter === 'Completed' ? 'btn-success' : 'btn-secondary'; ?>">
                         Completed <span class="badge bg-light text-dark ms-1"><?php echo $count_done; ?></span>
@@ -292,35 +394,45 @@ $count_done = intval($status_counts['completed']);
                                 <span class="badge bg-<?php echo $task['priority'] === 'High' ? 'danger' : ($task['priority'] === 'Medium' ? 'warning' : 'success'); ?>">
                                     <?php echo $task['priority']; ?>
                                 </span>
-                                <span class="task-status-badge <?php if ($is_overdue): ?>status-overdue<?php else: ?>status-<?php echo strtolower(str_replace(' ', '-', $task['status'])); ?><?php endif; ?>">
+                                <span class="task-status-badge <?php if ($is_overdue): ?>status-overdue<?php else: ?>status-<?php echo $is_completed ? 'completed' : 'pending'; ?><?php endif; ?>">
                                     <?php if ($is_overdue): ?>
                                         <i class="fas fa-exclamation-triangle"></i>
                                         Overdue
                                     <?php elseif ($task['status'] === 'Completed'): ?>
                                         <i class="fas fa-check-circle"></i>
-                                    <?php elseif ($task['status'] === 'In Progress'): ?>
-                                        <i class="fas fa-spinner fa-pulse"></i>
                                     <?php else: ?>
                                         <i class="fas fa-hourglass-half"></i>
                                     <?php endif; ?>
-                                    <?php if (!$is_overdue): ?><?php echo $task['status']; ?><?php endif; ?>
+                                    <?php if (!$is_overdue): ?><?php echo $is_completed ? 'Completed' : 'Pending'; ?><?php endif; ?>
                                 </span>
                                 <span class="badge bg-secondary"><?php echo $task['type']; ?></span>
                                 <?php if (!empty($task['is_recurring'])): ?>
                                     <span class="badge bg-dark"><i class="fas fa-redo"></i> <?php echo $task['recurrence_type'] ?? 'Recurring'; ?></span>
                                 <?php endif; ?>
                             </div>
+
+                            <!-- Attachments for this task -->
+                            <div class="task-attachments" id="att-task-<?php echo $task['id']; ?>" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;">
+                                <!-- Loaded by JS -->
+                            </div>
+                            <!-- Inline upload trigger -->
+                            <div style="margin-top:6px;">
+                                <label title="Attach a file" style="cursor:pointer;font-size:11px;color:var(--text-muted);">
+                                    <i class="fas fa-paperclip"></i> Attach file
+                                    <input type="file" style="display:none;" onchange="uploadTaskAttachment(<?php echo $task['id']; ?>, this)">
+                                </label>
+                            </div>
                         </div>
                         <div class="task-actions ms-3">
                             <?php if ($is_completed): ?>
                             <button class="btn btn-sm btn-warning" 
-                                    onclick="StudifyConfirm.action('Reopen Task', 'Mark this task as pending again?', 'warning', function(){ toggleTaskStatus(<?php echo $task['id']; ?>, '<?php echo BASE_URL; ?>') })"
+                                    onclick="StudifyConfirm.action('Reopen Task', 'Mark this task as pending again?', 'warning', function(){ toggleTaskStatus(<?php echo $task['id']; ?>, '<?php echo BASE_URL; ?>', 'Pending') })"
                                     title="Reopen Task">
                                 <i class="fas fa-undo"></i>
                             </button>
                             <?php else: ?>
                             <button class="btn btn-sm btn-success" 
-                                    onclick="StudifyConfirm.action('Complete Task', 'Mark this task as completed?', 'success', function(){ toggleTaskStatus(<?php echo $task['id']; ?>, '<?php echo BASE_URL; ?>') })"
+                                    onclick="StudifyConfirm.action('Complete Task', 'Mark this task as completed?', 'success', function(){ toggleTaskStatus(<?php echo $task['id']; ?>, '<?php echo BASE_URL; ?>', 'Completed') })"
                                     title="Mark Complete">
                                 <i class="fas fa-check"></i>
                             </button>
@@ -399,7 +511,7 @@ $count_done = intval($status_counts['completed']);
                         </div>
                         <div class="task-actions ms-3">
                             <button class="btn btn-sm btn-warning" 
-                                    onclick="StudifyConfirm.action('Reopen Task', 'Mark this task as pending again?', 'warning', function(){ toggleTaskStatus(<?php echo $task['id']; ?>, '<?php echo BASE_URL; ?>') })"
+                                    onclick="StudifyConfirm.action('Reopen Task', 'Mark this task as pending again?', 'warning', function(){ toggleTaskStatus(<?php echo $task['id']; ?>, '<?php echo BASE_URL; ?>', 'Pending') })"
                                     title="Reopen Task">
                                 <i class="fas fa-undo"></i>
                             </button>
@@ -426,10 +538,39 @@ $count_done = intval($status_counts['completed']);
                 <h5 class="modal-title"><i class="fas fa-plus"></i> Add New Task</h5>
                 <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
             </div>
-            <form method="POST">
+            <form method="POST" action="tasks.php">
                 <div class="modal-body">
                     <?php echo getCSRFField(); ?>
                     <input type="hidden" name="action" value="add">
+                    
+                    <?php
+                    // Load task templates - wrap in try/catch in case table doesn't exist yet
+                    $templates = [];
+                    try {
+                        if (function_exists('getTaskTemplates')) {
+                            $templates = getTaskTemplates($user_id, $conn);
+                        }
+                    } catch (Throwable $e) {
+                        error_log("Task Templates table might be missing: " . $e->getMessage());
+                    }
+                    if (!empty($templates)):
+                    ?>
+                    <div class="mb-3">
+                        <label class="form-label"><i class="fas fa-layer-group"></i> Use Template <small class="text-muted">(optional)</small></label>
+                        <select class="form-select" id="taskTemplate" onchange="loadTaskTemplate(this.value)">
+                            <option value="">— Start from scratch —</option>
+                            <?php foreach ($templates as $template): ?>
+                            <option value="<?php echo $template['id']; ?>" data-template='<?php echo htmlspecialchars(json_encode($template), ENT_QUOTES); ?>'>
+                                <?php echo htmlspecialchars($template['name']); ?>
+                                <?php if ($template['is_system']): ?>
+                                    <span class="badge bg-info ms-1" style="font-size: 9px;">System</span>
+                                <?php endif; ?>
+                            </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <small class="text-muted">Select a template to pre-fill the form</small>
+                    </div>
+                    <?php endif; ?>
 
                     <div class="row">
                         <div class="col-md-8 mb-3">
@@ -574,7 +715,6 @@ $count_done = intval($status_counts['completed']);
                             <label for="editStatus" class="form-label">Status</label>
                             <select class="form-select" id="editStatus" name="status">
                                 <option value="Pending">Pending</option>
-                                <option value="In Progress">In Progress</option>
                                 <option value="Completed">Completed</option>
                             </select>
                         </div>
@@ -616,25 +756,154 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 <?php endif; ?>
 
+function loadTaskTemplate(templateId) {
+    if (!templateId) {
+        // Reset form if no template selected
+        document.getElementById('addTitle').value = '';
+        document.getElementById('addDesc').value = '';
+        document.getElementById('addType').value = 'Assignment';
+        document.getElementById('addPriority').value = 'Medium';
+        return;
+    }
+    
+    const select = document.getElementById('taskTemplate');
+    const option = select.options[select.selectedIndex];
+    const template = JSON.parse(option.getAttribute('data-template'));
+    
+    if (template) {
+        // Replace placeholders in title
+        let title = template.title;
+        title = title.replace('{week}', new Date().getWeek ? new Date().getWeek() : Math.ceil((new Date().getTime() - new Date(new Date().getFullYear(), 0, 1)) / (7 * 24 * 60 * 60 * 1000)));
+        title = title.replace('{subject}', 'Subject');
+        title = title.replace('{title}', 'Task');
+        title = title.replace('{milestone}', 'Milestone');
+        
+        document.getElementById('addTitle').value = title;
+        document.getElementById('addDesc').value = template.description || '';
+        document.getElementById('addType').value = template.type || 'Assignment';
+        document.getElementById('addPriority').value = template.priority || 'Medium';
+        
+        if (template.is_recurring) {
+            document.getElementById('addRecurring').checked = true;
+            document.getElementById('recurringFields').style.display = 'flex';
+            document.getElementById('addRecurrenceType').value = template.recurrence_type || 'Weekly';
+        } else {
+            document.getElementById('addRecurring').checked = false;
+            document.getElementById('recurringFields').style.display = 'none';
+        }
+        
+        StudifyToast.success('Template Loaded', template.name);
+    }
+}
+
 function fillTaskEditForm(task) {
     document.getElementById('editTaskId').value = task.id;
     document.getElementById('editTitle').value = task.title;
     document.getElementById('editDesc').value = task.description || '';
     document.getElementById('editType').value = task.type;
     document.getElementById('editPriority').value = task.priority;
-    document.getElementById('editStatus').value = task.status;
-    
-    // Format datetime for input
+    document.getElementById('editStatus').value = (task.status === 'Completed') ? 'Completed' : 'Pending';
     if (task.deadline) {
         const dt = new Date(task.deadline);
-        const formatted = dt.getFullYear() + '-' + 
-            String(dt.getMonth() + 1).padStart(2, '0') + '-' + 
-            String(dt.getDate()).padStart(2, '0') + 'T' + 
-            String(dt.getHours()).padStart(2, '0') + ':' + 
-            String(dt.getMinutes()).padStart(2, '0');
+        const formatted = dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0') + 'T' + String(dt.getHours()).padStart(2,'0') + ':' + String(dt.getMinutes()).padStart(2,'0');
         document.getElementById('editDeadline').value = formatted;
     }
 }
+
+// ─── File Attachments ────────────────────────────────────────
+const BASE_URL = '<?php echo BASE_URL; ?>';
+
+function getFiletypeIcon(mime) {
+    if (mime.startsWith('image/')) return 'fa-image';
+    if (mime === 'application/pdf') return 'fa-file-pdf';
+    if (mime.includes('word')) return 'fa-file-word';
+    if (mime.includes('excel') || mime.includes('spreadsheet')) return 'fa-file-excel';
+    if (mime.includes('powerpoint') || mime.includes('presentation')) return 'fa-file-powerpoint';
+    if (mime.includes('zip')) return 'fa-file-archive';
+    if (mime.startsWith('text/')) return 'fa-file-alt';
+    return 'fa-file';
+}
+
+function formatBytes(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+    return (bytes/1024/1024).toFixed(1) + ' MB';
+}
+
+function renderAttachments(container, attachments) {
+    container.innerHTML = '';
+    attachments.forEach(att => {
+        const chip = document.createElement('div');
+        chip.style.cssText = 'display:inline-flex;align-items:center;gap:6px;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:6px;padding:4px 8px;font-size:11px;max-width:180px;';
+        const icon = getFiletypeIcon(att.file_type);
+        chip.innerHTML = `
+            <i class="fas ${icon}" style="color:var(--primary);flex-shrink:0;"></i>
+            <a href="${att.url}" target="_blank" style="text-decoration:none;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;" title="${att.file_name}">${att.file_name}</a>
+            <span style="color:var(--text-muted);flex-shrink:0;">${formatBytes(att.file_size)}</span>
+            <button onclick="deleteAttachment(${att.id}, this)" style="background:none;border:none;color:var(--danger);cursor:pointer;padding:0;font-size:11px;flex-shrink:0;" title="Delete"><i class="fas fa-times"></i></button>
+        `;
+        container.appendChild(chip);
+    });
+}
+
+function loadTaskAttachments(taskId) {
+    const container = document.getElementById('att-task-' + taskId);
+    if (!container) return;
+    fetch(BASE_URL + 'student/attachments.php?action=list&task_id=' + taskId)
+        .then(r => r.json())
+        .then(data => { if (data.success) renderAttachments(container, data.attachments); });
+}
+
+function uploadTaskAttachment(taskId, input) {
+    if (!input.files.length) return;
+    const file = input.files[0];
+    const fd   = new FormData();
+    fd.append('action',    'upload');
+    fd.append('task_id',   taskId);
+    fd.append('file',      file);
+    fd.append('csrf_token', getCSRFToken());
+
+    StudifyToast.info('Uploading…', file.name);
+    fetch(BASE_URL + 'student/attachments.php', { method:'POST', body: fd })
+        .then(r => r.json())
+        .then(data => {
+            if (data.success) {
+                StudifyToast.success('Uploaded', data.attachment.file_name);
+                loadTaskAttachments(taskId);
+            } else {
+                StudifyToast.error('Upload Failed', data.message);
+            }
+        })
+        .catch(() => StudifyToast.error('Error', 'Network error'));
+    input.value = ''; // reset
+}
+
+function deleteAttachment(attId, btn) {
+    StudifyConfirm.action('Delete File', 'Remove this attachment?', 'danger', function() {
+        const fd = new FormData();
+        fd.append('action',        'delete');
+        fd.append('attachment_id', attId);
+        fd.append('csrf_token',    getCSRFToken());
+        fetch(BASE_URL + 'student/attachments.php', { method:'POST', body: fd })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    btn.closest('div[style]').remove();
+                    StudifyToast.success('Deleted', 'Attachment removed');
+                } else {
+                    StudifyToast.error('Error', data.message);
+                }
+            });
+    });
+}
+
+// Load all task attachments on page load
+document.addEventListener('DOMContentLoaded', function() {
+    document.querySelectorAll('.task-attachments').forEach(el => {
+        const taskId = el.id.replace('att-task-', '');
+        loadTaskAttachments(parseInt(taskId));
+    });
+});
 </script>
 
 <?php include '../includes/footer.php'; ?>
