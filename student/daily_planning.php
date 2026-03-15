@@ -23,8 +23,16 @@ $date_obj = new DateTime($selected_date);
 $today = date('Y-m-d');
 $is_today = $selected_date === $today;
 
-// Get tasks for selected date
-$tasks = getUserTasksFiltered($user_id, $conn, 0, '', 'deadline', 'ASC');
+// Get tasks for selected date and upcoming (date-range filter in SQL)
+$stmt = $conn->prepare("SELECT t.*, COALESCE(s.name, 'General') as subject_name, COALESCE(se.name, '') as semester_name
+    FROM tasks t
+    LEFT JOIN subjects s ON t.subject_id = s.id
+    LEFT JOIN semesters se ON s.semester_id = se.id
+    WHERE t.user_id = ? AND t.parent_id IS NULL AND DATE(t.deadline) >= ?
+    ORDER BY t.deadline ASC");
+$stmt->bind_param("is", $user_id, $selected_date);
+$stmt->execute();
+$tasks = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
 $day_tasks = [];
 $upcoming_tasks = [];
 

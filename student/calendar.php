@@ -247,7 +247,11 @@ $tasks_json = getTasksAsJSON($user_id, $conn);
                                 </div>
                                 <div class="col-md-4 mb-3">
                                     <label for="calAddDeadline" class="form-label">Deadline</label>
-                                    <input type="datetime-local" class="form-control" id="calAddDeadline" name="deadline" required>
+                                    <input type="datetime-local" class="form-control" id="calAddDeadline" name="deadline">
+                                    <div class="form-check mt-1">
+                                        <input class="form-check-input" type="checkbox" id="calNoDueDate" onchange="document.getElementById('calAddDeadline').disabled = this.checked; if(this.checked) document.getElementById('calAddDeadline').value = '';">
+                                        <label class="form-check-label" for="calNoDueDate" style="font-size: 12px;">No due date</label>
+                                    </div>
                                 </div>
                             </div>
                         </div>

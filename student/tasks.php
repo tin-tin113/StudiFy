@@ -126,14 +126,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $recurrence_end = ($is_recurring && !empty($_POST['recurrence_end'])) ? $_POST['recurrence_end'] : null;
         $subj_id_val = $subj_id > 0 ? $subj_id : null;
         
-        if (empty($title) || empty($deadline)) {
+        if (empty($title)) {
             if ($is_ajax) {
                 header('Content-Type: application/json');
-                echo json_encode(['success' => false, 'message' => 'Title and deadline are required.']);
+                echo json_encode(['success' => false, 'message' => 'Title is required.']);
                 exit();
             }
-            $error = 'Title and deadline are required.';
+            $error = 'Title is required.';
         } else {
+            if (!empty($deadline)) {
             // Convert deadline to proper datetime format if needed
             // datetime-local format: YYYY-MM-DDTHH:MM -> YYYY-MM-DD HH:MM:SS
             if (strlen($deadline) === 16 && strpos($deadline, 'T') !== false) {
@@ -156,6 +157,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $error = 'Invalid deadline format.';
                 }
             }
+            } else {
+                $deadline = null;
+            }
             
             if (empty($error)) {
                 $stmt = $conn->prepare("INSERT INTO tasks (user_id, subject_id, title, description, type, priority, deadline, is_recurring, recurrence_type, recurrence_end) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
@@ -175,7 +179,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if ($is_recurring && !empty($recurrence_type) && !empty($recurrence_end)) {
                             $current = new DateTime($deadline);
                             $end = new DateTime($recurrence_end);
-                            while (true) {
+                            $max_copies = 365;
+                            $copies = 0;
+                            while ($copies < $max_copies) {
                                 if ($recurrence_type === 'Daily') $current->modify('+1 day');
                                 elseif ($recurrence_type === 'Weekly') $current->modify('+1 week');
                                 elseif ($recurrence_type === 'Monthly') $current->modify('+1 month');
@@ -184,6 +190,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 $ins = $conn->prepare("INSERT INTO tasks (user_id, subject_id, title, description, type, priority, deadline, is_recurring, recurrence_type, recurrence_end) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                                 $ins->bind_param("iisssssiss", $user_id, $subj_id_val, $title, $description, $type, $priority, $next_deadline, $is_recurring, $recurrence_type, $recurrence_end);
                                 $ins->execute();
+                                $copies++;
                             }
                         }
                         
@@ -226,9 +233,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $status = 'Pending';
         }
         $deadline = $_POST['deadline'] ?? '';
+        $deadline = !empty($deadline) ? $deadline : null;
         
-        if (empty($title) || $task_id <= 0 || empty($deadline)) {
-            $error = 'Title and deadline are required.';
+        if (empty($title) || $task_id <= 0) {
+            $error = 'Title is required.';
         } else {
             // Verify task belongs to current user
             $check = $conn->prepare("SELECT t.id FROM tasks t WHERE t.id = ? AND t.user_id = ?");
@@ -359,9 +367,9 @@ $count_done = intval($status_counts['completed']);
                     elseif ($task['priority'] === 'Medium') $priority_class = 'priority-medium-border';
                     else $priority_class = 'priority-low-border';
                     
-                    $deadline = new DateTime($task['deadline']);
+                    $deadline = !empty($task['deadline']) ? new DateTime($task['deadline']) : null;
                     $now = new DateTime();
-                    $is_overdue = $deadline < $now && $task['status'] !== 'Completed';
+                    $is_overdue = $deadline && $deadline < $now && $task['status'] !== 'Completed';
                     $is_completed = $task['status'] === 'Completed';
                 ?>
                 <div class="card task-card <?php echo $priority_class; ?> <?php echo $is_completed ? 'task-done' : ''; ?> status-<?php echo strtolower(str_replace(' ', '-', $task['status'])); ?>" id="task-<?php echo $task['id']; ?>">
@@ -385,10 +393,14 @@ $count_done = intval($status_counts['completed']);
                                 <span class="text-muted"><i class="fas fa-tag"></i> No subject</span>
                                 <?php endif; ?>
                                 <span>
+                                    <?php if ($task['deadline']): ?>
                                     <i class="fas fa-calendar"></i> 
                                     <?php echo date('M d, Y h:i A', strtotime($task['deadline'])); ?>
                                     <?php if ($is_overdue): ?>
                                         <span class="badge bg-danger ms-1" style="font-size: 9px;">OVERDUE</span>
+                                    <?php endif; ?>
+                                    <?php else: ?>
+                                    <i class="fas fa-calendar-times text-muted"></i> <span class="text-muted">No due date</span>
                                     <?php endif; ?>
                                 </span>
                                 <span class="badge bg-<?php echo $task['priority'] === 'High' ? 'danger' : ($task['priority'] === 'Medium' ? 'warning' : 'success'); ?>">
@@ -500,8 +512,12 @@ $count_done = intval($status_counts['completed']);
                                 <span><i class="fas fa-book"></i> <?php echo htmlspecialchars($task['subject_name']); ?></span>
                                 <?php endif; ?>
                                 <span>
+                                    <?php if ($task['deadline']): ?>
                                     <i class="fas fa-calendar"></i> 
                                     <?php echo date('M d, Y', strtotime($task['deadline'])); ?>
+                                    <?php else: ?>
+                                    <i class="fas fa-calendar-times text-muted"></i> <span class="text-muted">No due date</span>
+                                    <?php endif; ?>
                                 </span>
                                 <span class="badge bg-secondary"><?php echo $task['type']; ?></span>
                                 <span class="task-status-badge status-completed">
@@ -632,8 +648,12 @@ $count_done = intval($status_counts['completed']);
                             </select>
                         </div>
                         <div class="col-md-4 mb-3">
-                            <label for="addDeadline" class="form-label">Deadline <span class="text-danger">*</span></label>
-                            <input type="datetime-local" class="form-control" id="addDeadline" name="deadline" required>
+                            <label for="addDeadline" class="form-label">Deadline</label>
+                            <input type="datetime-local" class="form-control" id="addDeadline" name="deadline">
+                            <div class="form-check mt-1">
+                                <input class="form-check-input" type="checkbox" id="addNoDueDate" onchange="document.getElementById('addDeadline').disabled = this.checked; if(this.checked) document.getElementById('addDeadline').value = '';">
+                                <label class="form-check-label" for="addNoDueDate" style="font-size: 12px;">No due date</label>
+                            </div>
                         </div>
                     </div>
                     <div class="row">
@@ -720,7 +740,11 @@ $count_done = intval($status_counts['completed']);
                         </div>
                         <div class="col-md-3 mb-3">
                             <label for="editDeadline" class="form-label">Deadline</label>
-                            <input type="datetime-local" class="form-control" id="editDeadline" name="deadline" required>
+                            <input type="datetime-local" class="form-control" id="editDeadline" name="deadline">
+                            <div class="form-check mt-1">
+                                <input class="form-check-input" type="checkbox" id="editNoDueDate" onchange="document.getElementById('editDeadline').disabled = this.checked; if(this.checked) document.getElementById('editDeadline').value = '';">
+                                <label class="form-check-label" for="editNoDueDate" style="font-size: 12px;">No due date</label>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -803,10 +827,18 @@ function fillTaskEditForm(task) {
     document.getElementById('editType').value = task.type;
     document.getElementById('editPriority').value = task.priority;
     document.getElementById('editStatus').value = (task.status === 'Completed') ? 'Completed' : 'Pending';
+    const deadlineInput = document.getElementById('editDeadline');
+    const noDueDateCb = document.getElementById('editNoDueDate');
     if (task.deadline) {
         const dt = new Date(task.deadline);
         const formatted = dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0') + 'T' + String(dt.getHours()).padStart(2,'0') + ':' + String(dt.getMinutes()).padStart(2,'0');
-        document.getElementById('editDeadline').value = formatted;
+        deadlineInput.value = formatted;
+        deadlineInput.disabled = false;
+        noDueDateCb.checked = false;
+    } else {
+        deadlineInput.value = '';
+        deadlineInput.disabled = true;
+        noDueDateCb.checked = true;
     }
 }
 

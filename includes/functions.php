@@ -81,9 +81,14 @@ function getUserTasksFiltered($user_id, $conn, $subject_id = 0, $status = '', $s
     if (!in_array(strtoupper($sort_dir), $allowed_dirs)) $sort_dir = 'ASC';
     
     // For priority sorting, use FIELD for proper order
-    $order_clause = $sort === 'priority' 
-        ? "FIELD(t.priority, 'High', 'Medium', 'Low') $sort_dir" 
-        : "t.$sort $sort_dir";
+    // For deadline sorting, put NULL deadlines last
+    if ($sort === 'priority') {
+        $order_clause = "FIELD(t.priority, 'High', 'Medium', 'Low') $sort_dir";
+    } elseif ($sort === 'deadline') {
+        $order_clause = "t.deadline IS NULL, t.deadline $sort_dir";
+    } else {
+        $order_clause = "t.$sort $sort_dir";
+    }
     
     $query = "SELECT t.*, COALESCE(s.name, 'General') as subject_name, COALESCE(se.name, '') as semester_name 
               FROM tasks t
@@ -194,10 +199,10 @@ function getUpcomingTasks($user_id, $conn, $days = 7) {
 
 // Function to calculate task completion percentage
 function getCompletionPercentage($user_id, $conn) {
-    $total = getTotalTasksCount($user_id, $conn);
+    $counts = getTaskStatusCounts($user_id, $conn);
+    $total = intval($counts['total'] ?? 0);
     if ($total == 0) return 0;
-    
-    $completed = getCompletedTasksCount($user_id, $conn);
+    $completed = intval($counts['completed'] ?? 0);
     return round(($completed / $total) * 100);
 }
 
@@ -528,22 +533,15 @@ function needsOnboarding($user_id, $conn) {
         return false;
     }
     
-    // Check if they have semesters, subjects, and tasks
-    $semesters = getUserSemesters($user_id, $conn);
-    if (empty($semesters)) return true;
-    
-    foreach ($semesters as $sem) {
-        $subjects = getSemesterSubjects($sem['id'], $conn);
-        if (!empty($subjects)) {
-            foreach ($subjects as $sub) {
-                $tasks = getSubjectTasks($sub['id'], $conn);
-                if (!empty($tasks)) {
-                    return false; // Has everything set up
-                }
-            }
-        }
-    }
-    return true;
+    // Single query to check if user has semesters → subjects → tasks
+    $stmt = $conn->prepare("SELECT COUNT(*) as cnt FROM tasks t
+        JOIN subjects s ON t.subject_id = s.id
+        JOIN semesters sem ON s.semester_id = sem.id
+        WHERE sem.user_id = ? AND t.parent_id IS NULL LIMIT 1");
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    return ($row['cnt'] ?? 0) == 0;
 }
 
 // Enhanced onboarding checklist - Get completion status for all 8 steps
@@ -559,45 +557,20 @@ function getOnboardingProgress($user_id, $conn) {
         'calendar' => false
     ];
     
-    // Step 1: Create Semester
-    $semesters = getUserSemesters($user_id, $conn);
-    $progress['semester'] = count($semesters) > 0;
+    // Steps 1-4: single query to get semester, subject, task, and completed task counts
+    $stmt = $conn->prepare("SELECT
+        (SELECT COUNT(*) FROM semesters WHERE user_id = ?) as semester_count,
+        (SELECT COUNT(*) FROM subjects s JOIN semesters sem ON s.semester_id = sem.id WHERE sem.user_id = ?) as subject_count,
+        (SELECT COUNT(*) FROM tasks t WHERE t.user_id = ? AND t.parent_id IS NULL) as task_count,
+        (SELECT COUNT(*) FROM tasks t WHERE t.user_id = ? AND t.status = 'Completed' AND t.parent_id IS NULL) as completed_count");
+    $stmt->bind_param("iiii", $user_id, $user_id, $user_id, $user_id);
+    $stmt->execute();
+    $counts = $stmt->get_result()->fetch_assoc();
     
-    // Step 2: Add Subjects (need at least 3)
-    if ($progress['semester']) {
-        $total_subjects = 0;
-        foreach ($semesters as $sem) {
-            $subjects = getSemesterSubjects($sem['id'], $conn);
-            $total_subjects += count($subjects);
-        }
-        $progress['subjects'] = $total_subjects >= 3;
-    }
-    
-    // Step 3: Create First Task
-    if ($progress['subjects']) {
-        foreach ($semesters as $sem) {
-            $subjects = getSemesterSubjects($sem['id'], $conn);
-            foreach ($subjects as $sub) {
-                $tasks = getSubjectTasks($sub['id'], $conn);
-                if (count($tasks) > 0) {
-                    $progress['task'] = true;
-                    break 2;
-                }
-            }
-        }
-    }
-    
-    // Step 4: Complete First Task
-    if ($progress['task']) {
-        $stmt = $conn->prepare("SELECT COUNT(*) as cnt FROM tasks t 
-            JOIN subjects s ON t.subject_id = s.id 
-            JOIN semesters sem ON s.semester_id = sem.id 
-            WHERE sem.user_id = ? AND t.status = 'Completed' AND t.parent_id IS NULL");
-        $stmt->bind_param("i", $user_id);
-        $stmt->execute();
-        $result = $stmt->get_result()->fetch_assoc();
-        $progress['task_completed'] = $result['cnt'] > 0;
-    }
+    $progress['semester'] = $counts['semester_count'] > 0;
+    $progress['subjects'] = $counts['subject_count'] >= 3;
+    $progress['task'] = $counts['task_count'] > 0;
+    $progress['task_completed'] = $counts['completed_count'] > 0;
     
     // Step 5: Use Pomodoro Timer
     $stmt = $conn->prepare("SELECT COUNT(*) as cnt FROM study_sessions WHERE user_id = ?");

@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     parent_id INT DEFAULT NULL COMMENT 'For subtasks - references parent task',
     title VARCHAR(255) NOT NULL,
     description TEXT,
-    deadline DATETIME NOT NULL,
+    deadline DATETIME DEFAULT NULL,
     priority ENUM('Low', 'Medium', 'High') DEFAULT 'Medium',
     type ENUM('Assignment', 'Quiz', 'Project', 'Exam', 'Report', 'Other') DEFAULT 'Assignment',
     status ENUM('Pending', 'Completed') DEFAULT 'Pending',
