@@ -48,6 +48,7 @@ function requireLogin() {
 
 // Require admin - redirect if not admin
 function requireAdmin() {
+    requireLogin();
     if (!isAdminRole()) {
         header("Location: " . BASE_URL . "index.php");
         exit();

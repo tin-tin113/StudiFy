@@ -22,12 +22,13 @@ if ($_POST['action'] === 'delete_user') {
     $delete_id = intval($_POST['user_id'] ?? 0);
     if ($delete_id > 0 && $delete_id !== $user_id) {
         // Prevent deleting the last admin
-        $admin_check = $conn->query("SELECT COUNT(*) as cnt FROM users WHERE role = 'admin'");
+        $admin_check = $conn->prepare("SELECT COUNT(*) as cnt FROM users WHERE role = 'admin'");
+        $admin_check->execute();
         $target_role = $conn->prepare("SELECT role FROM users WHERE id = ?");
         $target_role->bind_param("i", $delete_id);
         $target_role->execute();
         $target_user = $target_role->get_result()->fetch_assoc();
-        if ($target_user && $target_user['role'] === 'admin' && $admin_check->fetch_assoc()['cnt'] <= 1) {
+        if ($target_user && $target_user['role'] === 'admin' && $admin_check->get_result()->fetch_assoc()['cnt'] <= 1) {
             $_SESSION['message'] = 'Cannot delete the last admin account.';
             $_SESSION['message_type'] = 'error';
         } else {
@@ -62,8 +63,9 @@ if ($_POST['action'] === 'delete_user') {
     if ($target_id > 0 && $target_id !== $user_id) {
         // Prevent demoting the last admin
         if ($new_role === 'student') {
-            $admin_count = $conn->query("SELECT COUNT(*) as cnt FROM users WHERE role = 'admin'");
-            if ($admin_count->fetch_assoc()['cnt'] <= 1) {
+            $admin_count = $conn->prepare("SELECT COUNT(*) as cnt FROM users WHERE role = 'admin'");
+            $admin_count->execute();
+            if ($admin_count->get_result()->fetch_assoc()['cnt'] <= 1) {
                 $_SESSION['message'] = 'Cannot demote the last admin account.';
                 $_SESSION['message_type'] = 'error';
                 header("Location: manage_users.php");

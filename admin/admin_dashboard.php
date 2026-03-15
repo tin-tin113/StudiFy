@@ -18,46 +18,56 @@ $total_users = getTotalUsers($conn);
 $total_tasks = getTotalSystemTasks($conn);
 
 $total_semesters = 0;
-$result = $conn->query("SELECT COUNT(*) as count FROM semesters");
-if ($row = $result->fetch_assoc()) $total_semesters = $row['count'];
+$stmt = $conn->prepare("SELECT COUNT(*) as count FROM semesters");
+$stmt->execute();
+if ($row = $stmt->get_result()->fetch_assoc()) $total_semesters = $row['count'];
 
 $total_subjects = 0;
-$result = $conn->query("SELECT COUNT(*) as count FROM subjects");
-if ($row = $result->fetch_assoc()) $total_subjects = $row['count'];
+$stmt = $conn->prepare("SELECT COUNT(*) as count FROM subjects");
+$stmt->execute();
+if ($row = $stmt->get_result()->fetch_assoc()) $total_subjects = $row['count'];
 
 // Study sessions count
 $total_study = 0;
-$result = $conn->query("SELECT COALESCE(SUM(duration),0) as mins FROM study_sessions");
-if ($row = $result->fetch_assoc()) $total_study = round($row['mins'] / 60, 1);
+$stmt = $conn->prepare("SELECT COALESCE(SUM(duration),0) as mins FROM study_sessions");
+$stmt->execute();
+if ($row = $stmt->get_result()->fetch_assoc()) $total_study = round($row['mins'] / 60, 1);
 
 // Completed tasks count
 $completed_tasks = 0;
-$result = $conn->query("SELECT COUNT(*) as count FROM tasks WHERE status = 'Completed'");
-if ($row = $result->fetch_assoc()) $completed_tasks = $row['count'];
+$stmt = $conn->prepare("SELECT COUNT(*) as count FROM tasks WHERE status = 'Completed'");
+$stmt->execute();
+if ($row = $stmt->get_result()->fetch_assoc()) $completed_tasks = $row['count'];
 
 // Pending tasks count
 $pending_tasks = 0;
-$result = $conn->query("SELECT COUNT(*) as count FROM tasks WHERE status != 'Completed'");
-if ($row = $result->fetch_assoc()) $pending_tasks = $row['count'];
+$stmt = $conn->prepare("SELECT COUNT(*) as count FROM tasks WHERE status != 'Completed'");
+$stmt->execute();
+if ($row = $stmt->get_result()->fetch_assoc()) $pending_tasks = $row['count'];
 
 // New users this month
 $new_users_month = 0;
-$result = $conn->query("SELECT COUNT(*) as count FROM users WHERE created_at >= DATE_FORMAT(NOW(), '%Y-%m-01')");
-if ($row = $result->fetch_assoc()) $new_users_month = $row['count'];
+$stmt = $conn->prepare("SELECT COUNT(*) as count FROM users WHERE created_at >= DATE_FORMAT(NOW(), '%Y-%m-01')");
+$stmt->execute();
+if ($row = $stmt->get_result()->fetch_assoc()) $new_users_month = $row['count'];
 
-// Recent 5 users
+// Recent 5 users (exclude password hash)
 $recent_users = [];
-$result = $conn->query("SELECT * FROM users ORDER BY created_at DESC LIMIT 5");
+$stmt = $conn->prepare("SELECT id, name, email, role, course, year_level, profile_photo, created_at FROM users ORDER BY created_at DESC LIMIT 5");
+$stmt->execute();
+$result = $stmt->get_result();
 while ($row = $result->fetch_assoc()) $recent_users[] = $row;
 
 // Top active users (most tasks) — uses direct user_id FK on tasks
 $top_users = [];
-$result = $conn->query("SELECT u.name, u.email, COUNT(t.id) as task_count, 
+$stmt = $conn->prepare("SELECT u.name, u.email, COUNT(t.id) as task_count, 
                          SUM(CASE WHEN t.status = 'Completed' THEN 1 ELSE 0 END) as completed
                          FROM users u 
                          LEFT JOIN tasks t ON u.id = t.user_id AND t.parent_id IS NULL
                          WHERE u.role = 'student'
                          GROUP BY u.id ORDER BY task_count DESC LIMIT 5");
+$stmt->execute();
+$result = $stmt->get_result();
 while ($row = $result->fetch_assoc()) $top_users[] = $row;
 
 $completion_rate = $total_tasks > 0 ? round(($completed_tasks / $total_tasks) * 100) : 0;

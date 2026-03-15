@@ -4,7 +4,7 @@
 
 // Function to get user information
 function getUserInfo($user_id, $conn) {
-    $query = "SELECT * FROM users WHERE id = ?";
+    $query = "SELECT id, name, email, role, course, year_level, profile_photo, onboarding_completed, login_attempts, locked_until, created_at, updated_at FROM users WHERE id = ?";
     $stmt = $conn->prepare($query);
     $stmt->bind_param("i", $user_id);
     $stmt->execute();
@@ -332,9 +332,9 @@ function getTypeColor($type) {
     }
 }
 
-// Function to get all users (for admin)
+// Function to get all users (for admin) — excludes password hash
 function getAllUsers($conn) {
-    $query = "SELECT * FROM users ORDER BY created_at DESC";
+    $query = "SELECT id, name, email, role, course, year_level, profile_photo, onboarding_completed, login_attempts, locked_until, created_at, updated_at FROM users ORDER BY created_at DESC";
     $stmt = $conn->prepare($query);
     $stmt->execute();
     $result = $stmt->get_result();
@@ -447,13 +447,16 @@ function handleFileUpload($file, $user_id, $conn, $task_id = null, $note_id = nu
     }
     
     // Generate unique filename
-    $filename = uniqid() . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '', $file['name']);
+    $filename = bin2hex(random_bytes(8)) . '_' . preg_replace('/[^a-zA-Z0-9._-]/', '', $file['name']);
     $filepath = $user_dir . $filename;
     
     if (move_uploaded_file($file['tmp_name'], $filepath)) {
+        // Use server-detected MIME type instead of client-supplied $_FILES type
+        $finfo = new finfo(FILEINFO_MIME_TYPE);
+        $real_type = $finfo->file($filepath);
         $stmt = $conn->prepare("INSERT INTO attachments (user_id, task_id, note_id, file_name, file_path, file_size, file_type) VALUES (?, ?, ?, ?, ?, ?, ?)");
         $relative_path = 'uploads/' . $user_id . '/' . $filename;
-        $stmt->bind_param("iiissis", $user_id, $task_id, $note_id, $file['name'], $relative_path, $file['size'], $file['type']);
+        $stmt->bind_param("iiissis", $user_id, $task_id, $note_id, $file['name'], $relative_path, $file['size'], $real_type);
         $stmt->execute();
         
         return ['success' => true, 'id' => $conn->insert_id, 'path' => $relative_path, 'name' => $file['name']];
