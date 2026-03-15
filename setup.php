@@ -19,13 +19,13 @@ $remote_addr = $_SERVER['REMOTE_ADDR'] ?? '';
 $is_local = in_array($remote_addr, ['127.0.0.1', '::1']);
 if (!$is_cli && !$is_local) {
     http_response_code(403);
-    die('Forbidden');
+    die('Forbidden — setup can only be run from localhost or CLI.');
 }
 
-$db_host = 'localhost';
-$db_user = 'root';
-$db_password = '';
-$db_name = 'studify';
+$db_host = getenv('DB_HOST') ?: 'localhost';
+$db_user = getenv('DB_USER') ?: 'root';
+$db_password = getenv('DB_PASS') ?: '';
+$db_name = getenv('DB_NAME') ?: 'studify';
 
 echo "<h1>Studify - Database Setup</h1>";
 

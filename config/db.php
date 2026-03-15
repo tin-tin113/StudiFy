@@ -15,11 +15,11 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
-// Database credentials
-$db_host = 'localhost';
-$db_user = 'root';
-$db_password = '';
-$db_name = 'studify';
+// Database credentials (use environment variables in production)
+$db_host = getenv('DB_HOST') ?: 'localhost';
+$db_user = getenv('DB_USER') ?: 'root';
+$db_password = getenv('DB_PASS') ?: '';
+$db_name = getenv('DB_NAME') ?: 'studify';
 
 // Create connection
 $conn = new mysqli($db_host, $db_user, $db_password, $db_name);
@@ -55,6 +55,11 @@ function cleanInput($data) {
 // SQL safety: use prepared statements. XSS safety: use htmlspecialchars() on output.
 function sanitize($data) {
     return cleanInput($data);
+}
+
+// Output escaping shorthand — always use when echoing user data into HTML
+function e($str) {
+    return htmlspecialchars($str ?? '', ENT_QUOTES, 'UTF-8');
 }
 
 // ─── CSRF Protection ───
