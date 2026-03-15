@@ -49,11 +49,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             // In production, send email. For demo, show link directly.
             $reset_link = BASE_URL . "auth/reset_password.php?token=" . $token;
-            $success = 'Password reset link generated! In production, this would be emailed to you.';
-        } else {
-            // Generic message to prevent email enumeration
-            $success = 'If an account with that email exists, a reset link has been generated.';
         }
+        // Always show generic message to prevent email enumeration
+        $success = 'If an account with that email exists, a reset link has been generated.';
     }
 }
 ?>

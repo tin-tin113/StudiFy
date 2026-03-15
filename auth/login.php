@@ -45,7 +45,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 
                 // Redirect to original page or dashboard
                 $redirect = $_GET['redirect'] ?? '';
-                if (!empty($redirect) && strpos($redirect, '/') === 0 && strpos($redirect, '//') !== 0) {
+                if (!empty($redirect) && preg_match('#^/[a-zA-Z0-9_./?&=-]+$#', $redirect) && strpos($redirect, '//') === false) {
                     header("Location: " . $redirect);
                 } elseif ($user['role'] === 'admin') {
                     header("Location: " . BASE_URL . "admin/admin_dashboard.php");

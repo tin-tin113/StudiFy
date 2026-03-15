@@ -24,7 +24,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if ($action === 'reset_password') {
         $target_id = intval($_POST['user_id'] ?? 0);
         $new_pass = $_POST['new_password'] ?? '';
-        if ($target_id > 0 && strlen($new_pass) >= 6) {
+        if ($target_id > 0 && strlen($new_pass) >= 8 && preg_match('/[A-Z]/', $new_pass) && preg_match('/[0-9]/', $new_pass)) {
             $hashed = password_hash($new_pass, PASSWORD_BCRYPT);
             $stmt = $conn->prepare("UPDATE users SET password = ? WHERE id = ?");
             $stmt->bind_param("si", $hashed, $target_id);
@@ -37,7 +37,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $error = 'Error resetting password.';
             }
         } else {
-            $error = 'Invalid user or password must be at least 6 characters.';
+            $error = 'Invalid user or password must be at least 8 characters with at least one uppercase letter and one number.';
         }
     }
 
