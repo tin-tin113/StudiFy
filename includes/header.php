@@ -39,6 +39,9 @@ if (isset($_SESSION['user_id']) && function_exists('getPendingTasksCount') && $u
     } elseif (function_exists('getUnreadNudgeCount')) {
         $unread_nudge_count = getUnreadNudgeCount($_SESSION['user_id'], $conn);
     }
+    if (function_exists('getUnreadGroupMessageCount')) {
+        $unread_group_count = getUnreadGroupMessageCount($_SESSION['user_id'], $conn);
+    }
     // Run notification checker & get notification data
     if (function_exists('getUnreadNotificationCount')) {
         require_once __DIR__ . '/notification_checker.php';
@@ -185,6 +188,13 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-i
                 <i class="fas fa-user-friends"></i> <span class="sidebar-link-text">Study Buddy</span>
                 <?php if ($unread_nudge_count > 0): ?>
                     <span class="badge bg-danger ms-auto" style="font-size: 10px;"><?php echo $unread_nudge_count; ?></span>
+                <?php endif; ?>
+            </a>
+            <a href="<?php echo BASE_URL; ?>student/study_groups.php" title="Study Groups"
+               class="nav-link-sidebar <?php echo $current_page === 'study_groups.php' ? 'active' : ''; ?>">
+                <i class="fas fa-users"></i> <span class="sidebar-link-text">Study Groups</span>
+                <?php if (!empty($unread_group_count) && $unread_group_count > 0): ?>
+                    <span class="badge bg-danger ms-auto" style="font-size: 10px;"><?php echo $unread_group_count; ?></span>
                 <?php endif; ?>
             </a>
         <?php endif; ?>
