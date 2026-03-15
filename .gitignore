@@ -1,0 +1,39 @@
+# OS and editor artifacts
+.DS_Store
+Thumbs.db
+Desktop.ini
+.vscode/
+.idea/
+
+# Local environment and secrets
+.env
+.env.*
+!.env.example
+
+# PHP and Composer artifacts
+vendor/
+composer.phar
+.phpunit.result.cache
+phpunit.xml.cache
+coverage/
+.cache/
+
+# Python tooling artifacts
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Runtime files
+*.log
+*.tmp
+*.pid
+
+# User uploads (keep folder structure only)
+uploads/attachments/*
+!uploads/attachments/.gitkeep
+uploads/avatars/*
+!uploads/avatars/.gitkeep
+uploads/photos/*
+!uploads/photos/.gitkeep
