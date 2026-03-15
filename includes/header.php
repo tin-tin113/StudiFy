@@ -55,6 +55,12 @@ if (isset($_SESSION['user_id']) && $user_role === 'student' && function_exists('
 }
 
 $csrf_token = generateCSRFToken();
+
+// Security headers
+header("X-Content-Type-Options: nosniff");
+header("X-Frame-Options: SAMEORIGIN");
+header("Referrer-Policy: strict-origin-when-cross-origin");
+header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://fonts.googleapis.com; font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; img-src 'self' data:;");
 ?>
 <!DOCTYPE html>
 <html lang="en">
