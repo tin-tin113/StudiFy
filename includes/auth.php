@@ -2,8 +2,15 @@
 // Authentication Helper
 // Session management and auth checks
 
-// Start session if not already started
+// Start session if not already started (with secure settings)
 if (session_status() === PHP_SESSION_NONE) {
+    ini_set('session.use_strict_mode', 1);
+    ini_set('session.cookie_httponly', 1);
+    ini_set('session.cookie_samesite', 'Lax');
+    $is_https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (($_SERVER['SERVER_PORT'] ?? null) == 443);
+    if ($is_https) {
+        ini_set('session.cookie_secure', 1);
+    }
     session_start();
 }
 
@@ -65,11 +72,13 @@ function regenerateSession() {
 // Secure login - sets session and regenerates ID
 function secureLogin($user) {
     session_regenerate_id(true);
+    unset($_SESSION['csrf_token']); // Force fresh CSRF token after login
     $_SESSION['user_id'] = $user['id'];
     $_SESSION['name'] = $user['name'];
     $_SESSION['email'] = $user['email'];
     $_SESSION['role'] = $user['role'];
     $_SESSION['logged_in_at'] = time();
+    $_SESSION['last_activity'] = time();
 }
 
 // Secure logout - destroys session properly
@@ -87,7 +96,12 @@ function secureLogout() {
 
 // Check if user account is locked (brute force protection)
 function isAccountLocked($email, $conn) {
-    $stmt = $conn->prepare("SELECT login_attempts, locked_until FROM users WHERE email = ?");
+    // Atomically reset expired lockouts
+    $reset = $conn->prepare("UPDATE users SET login_attempts = 0, locked_until = NULL WHERE email = ? AND locked_until IS NOT NULL AND locked_until <= NOW()");
+    $reset->bind_param("s", $email);
+    $reset->execute();
+
+    $stmt = $conn->prepare("SELECT locked_until FROM users WHERE email = ?");
     $stmt->bind_param("s", $email);
     $stmt->execute();
     $result = $stmt->get_result();
@@ -95,33 +109,20 @@ function isAccountLocked($email, $conn) {
         if ($row['locked_until'] && new DateTime($row['locked_until']) > new DateTime()) {
             return true;
         }
-        // Reset if lockout expired
-        if ($row['locked_until'] && new DateTime($row['locked_until']) <= new DateTime()) {
-            $reset = $conn->prepare("UPDATE users SET login_attempts = 0, locked_until = NULL WHERE email = ?");
-            $reset->bind_param("s", $email);
-            $reset->execute();
-        }
     }
     return false;
 }
 
-// Increment login attempts
+// Increment login attempts (atomic increment + conditional lock)
 function incrementLoginAttempts($email, $conn) {
-    $stmt = $conn->prepare("UPDATE users SET login_attempts = login_attempts + 1 WHERE email = ?");
-    $stmt->bind_param("s", $email);
+    $lockout_minutes = defined('LOCKOUT_DURATION') ? LOCKOUT_DURATION : 15;
+    $max_attempts = defined('MAX_LOGIN_ATTEMPTS') ? MAX_LOGIN_ATTEMPTS : 5;
+    $stmt = $conn->prepare("UPDATE users SET login_attempts = login_attempts + 1,
+        locked_until = CASE WHEN login_attempts + 1 >= ? 
+            THEN DATE_ADD(NOW(), INTERVAL ? MINUTE) ELSE locked_until END
+        WHERE email = ?");
+    $stmt->bind_param("iis", $max_attempts, $lockout_minutes, $email);
     $stmt->execute();
-
-    // Check if should lock
-    $check = $conn->prepare("SELECT login_attempts FROM users WHERE email = ?");
-    $check->bind_param("s", $email);
-    $check->execute();
-    $row = $check->get_result()->fetch_assoc();
-    if ($row && $row['login_attempts'] >= MAX_LOGIN_ATTEMPTS) {
-        $lock_until = date('Y-m-d H:i:s', strtotime('+' . LOCKOUT_DURATION . ' minutes'));
-        $lock = $conn->prepare("UPDATE users SET locked_until = ? WHERE email = ?");
-        $lock->bind_param("ss", $lock_until, $email);
-        $lock->execute();
-    }
 }
 
 // Reset login attempts on successful login
