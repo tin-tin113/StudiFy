@@ -27,6 +27,13 @@ $total = $result['total'];
 $total_pages = max(1, ceil($total / $per_page));
 
 $unread_count = getUnreadNotificationCount($user_id, $conn);
+
+// Auto-mark notifications as read when the page is viewed,
+// but keep the unread_count variable for the UI logic on this page load.
+if ($unread_count > 0 && ($filter === 'all' || $filter === 'unread')) {
+    markAllNotificationsRead($user_id, $conn);
+}
+
 $prefs = getNotificationPreferences($user_id, $conn);
 
 // Group notifications by date

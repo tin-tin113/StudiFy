@@ -324,6 +324,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 $buddy_pair = getAcceptedBuddy($user_id, $conn);
 $pending_requests = getPendingBuddyRequests($user_id, $conn);
 $sent_request = getSentBuddyRequest($user_id, $conn);
+
+// Auto-mark buddy messages and nudges as read upon viewing the page
+if ($buddy_pair) {
+    markChatMessagesRead($user_id, $buddy_pair['buddy_id'], $conn);
+}
+$stmt = $conn->prepare("UPDATE buddy_nudges SET is_read = 1 WHERE receiver_id = ? AND is_read = 0");
+$stmt->bind_param("i", $user_id);
+$stmt->execute();
+$stmt->close();
 $my_progress = getBuddyProgress($user_id, $conn);
 $blocked_users = getBlockedUsers($user_id, $conn);
 $last_buddy = !$buddy_pair ? getLastBuddyPair($user_id, $conn) : null;

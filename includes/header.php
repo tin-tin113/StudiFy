@@ -180,21 +180,21 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-i
                class="nav-link-sidebar <?php echo $current_page === 'notifications.php' ? 'active' : ''; ?>">
                 <i class="fas fa-bell"></i> <span class="sidebar-link-text">Notifications</span>
                 <?php if ($unread_notif_count > 0): ?>
-                    <span class="badge bg-danger ms-auto" style="font-size: 10px;"><?php echo $unread_notif_count; ?></span>
+                    <span id="sidebar-notif-badge" class="badge bg-danger ms-auto" style="font-size: 10px;"><?php echo $unread_notif_count; ?></span>
                 <?php endif; ?>
             </a>
             <a href="<?php echo BASE_URL; ?>student/study_buddy.php" title="Study Buddy"
                class="nav-link-sidebar <?php echo $current_page === 'study_buddy.php' ? 'active' : ''; ?>">
                 <i class="fas fa-user-friends"></i> <span class="sidebar-link-text">Study Buddy</span>
                 <?php if ($unread_nudge_count > 0): ?>
-                    <span class="badge bg-danger ms-auto" style="font-size: 10px;"><?php echo $unread_nudge_count; ?></span>
+                    <span id="sidebar-buddy-badge" class="badge bg-danger ms-auto" style="font-size: 10px;"><?php echo $unread_nudge_count; ?></span>
                 <?php endif; ?>
             </a>
             <a href="<?php echo BASE_URL; ?>student/study_groups.php" title="Study Groups"
                class="nav-link-sidebar <?php echo $current_page === 'study_groups.php' ? 'active' : ''; ?>">
                 <i class="fas fa-users"></i> <span class="sidebar-link-text">Study Groups</span>
                 <?php if (!empty($unread_group_count) && $unread_group_count > 0): ?>
-                    <span class="badge bg-danger ms-auto" style="font-size: 10px;"><?php echo $unread_group_count; ?></span>
+                    <span id="sidebar-group-badge" class="badge bg-danger ms-auto" style="font-size: 10px;"><?php echo $unread_group_count; ?></span>
                 <?php endif; ?>
             </a>
         <?php endif; ?>

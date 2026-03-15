@@ -287,6 +287,15 @@ if ($active_group_id) {
         $group_progress = getGroupMemberProgress($active_group_id, $conn);
         $pending_requests = ($active_group['my_role'] === 'leader') ? getPendingJoinRequests($active_group_id, $conn) : [];
         updateUserActivity($user_id, $conn);
+
+        // Auto-mark group messages as read when viewing the group
+        $stmt_max = $conn->prepare("SELECT MAX(id) as max_id FROM group_messages WHERE group_id = ?");
+        $stmt_max->bind_param("i", $active_group_id);
+        $stmt_max->execute();
+        $max_id = $stmt_max->get_result()->fetch_assoc()['max_id'] ?? 0;
+        if ($max_id > 0) {
+            markGroupMessagesRead($active_group_id, $user_id, $max_id, $conn);
+        }
     }
 }
 ?>
