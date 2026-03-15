@@ -1272,4 +1272,482 @@ function createTaskFromTemplate($template_id, $user_id, $subject_id, $deadline, 
     return $stmt->execute() ? $conn->insert_id : false;
 }
 
+// ============================================
+// STUDY GROUP FUNCTIONS (v6.0)
+// ============================================
+
+// Generate a unique invite code
+function generateGroupInviteCode($conn) {
+    do {
+        $code = strtoupper(substr(bin2hex(random_bytes(4)), 0, 8));
+        $stmt = $conn->prepare("SELECT id FROM study_groups WHERE invite_code = ?");
+        $stmt->bind_param("s", $code);
+        $stmt->execute();
+        $exists = $stmt->get_result()->num_rows > 0;
+    } while ($exists);
+    return $code;
+}
+
+// Create a study group (creator becomes leader)
+function createStudyGroup($user_id, $name, $description, $conn) {
+    $code = generateGroupInviteCode($conn);
+    $stmt = $conn->prepare("INSERT INTO study_groups (name, description, leader_id, invite_code) VALUES (?, ?, ?, ?)");
+    $stmt->bind_param("ssis", $name, $description, $user_id, $code);
+    if (!$stmt->execute()) return false;
+    $group_id = $conn->insert_id;
+    // Add creator as leader member
+    $role = 'leader';
+    $stmt2 = $conn->prepare("INSERT INTO group_members (group_id, user_id, role) VALUES (?, ?, ?)");
+    $stmt2->bind_param("iis", $group_id, $user_id, $role);
+    $stmt2->execute();
+    return $group_id;
+}
+
+// Get all study groups for a user
+function getUserStudyGroups($user_id, $conn) {
+    $stmt = $conn->prepare("SELECT sg.*, gm.role,
+        (SELECT COUNT(*) FROM group_members WHERE group_id = sg.id) as member_count,
+        (SELECT COUNT(*) FROM group_messages WHERE group_id = sg.id AND id > COALESCE(
+            (SELECT last_read_id FROM group_message_reads WHERE group_id = sg.id AND user_id = ?), 0
+        )) as unread_count
+        FROM study_groups sg
+        JOIN group_members gm ON gm.group_id = sg.id AND gm.user_id = ?
+        ORDER BY sg.updated_at DESC");
+    $stmt->bind_param("ii", $user_id, $user_id);
+    $stmt->execute();
+    return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+}
+
+// Get full group info by ID (with membership check)
+function getGroupInfo($group_id, $user_id, $conn) {
+    $stmt = $conn->prepare("SELECT sg.*, gm.role as my_role
+        FROM study_groups sg
+        JOIN group_members gm ON gm.group_id = sg.id AND gm.user_id = ?
+        WHERE sg.id = ?");
+    $stmt->bind_param("ii", $user_id, $group_id);
+    $stmt->execute();
+    return $stmt->get_result()->fetch_assoc();
+}
+
+// Get group members with progress stats
+function getGroupMembers($group_id, $conn) {
+    $stmt = $conn->prepare("SELECT gm.*, u.name, u.email, u.profile_photo, u.course, u.year_level
+        FROM group_members gm
+        JOIN users u ON u.id = gm.user_id
+        WHERE gm.group_id = ?
+        ORDER BY gm.role = 'leader' DESC, gm.joined_at ASC");
+    $stmt->bind_param("i", $group_id);
+    $stmt->execute();
+    return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+}
+
+// Get group member progress (group tasks only — no personal tasks)
+function getGroupMemberProgress($group_id, $conn) {
+    $members = getGroupMembers($group_id, $conn);
+    $progress = [];
+    foreach ($members as $m) {
+        // Group-specific task stats only
+        $stmt = $conn->prepare("SELECT
+            COUNT(*) as group_tasks_total,
+            SUM(status = 'Completed') as group_tasks_done
+            FROM group_tasks WHERE group_id = ? AND assigned_to = ?");
+        $stmt->bind_param("ii", $group_id, $m['user_id']);
+        $stmt->execute();
+        $gt = $stmt->get_result()->fetch_assoc();
+
+        $total = (int)$gt['group_tasks_total'];
+        $done = (int)$gt['group_tasks_done'];
+
+        // Weekly study sessions (general — shows study effort)
+        $stmt = $conn->prepare("SELECT COALESCE(SUM(duration),0) as week_minutes, COUNT(*) as week_sessions
+            FROM study_sessions WHERE user_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)");
+        $stmt->bind_param("i", $m['user_id']);
+        $stmt->execute();
+        $study = $stmt->get_result()->fetch_assoc();
+
+        $progress[] = [
+            'user_id' => $m['user_id'],
+            'name' => $m['name'],
+            'profile_photo' => $m['profile_photo'],
+            'role' => $m['role'],
+            'group_tasks_total' => $total,
+            'group_tasks_done' => $done,
+            'group_completion_pct' => $total > 0 ? round(($done / $total) * 100) : 0,
+            'week_minutes' => (int)$study['week_minutes'],
+            'week_sessions' => (int)$study['week_sessions'],
+        ];
+    }
+    return $progress;
+}
+
+// Join a group by invite code
+function joinGroupByCode($user_id, $code, $conn) {
+    $stmt = $conn->prepare("SELECT id, max_members, join_mode FROM study_groups WHERE invite_code = ?");
+    $stmt->bind_param("s", $code);
+    $stmt->execute();
+    $group = $stmt->get_result()->fetch_assoc();
+    if (!$group) return ['success' => false, 'message' => 'Invalid invite code.'];
+
+    // Check if already a member
+    $stmt = $conn->prepare("SELECT id FROM group_members WHERE group_id = ? AND user_id = ?");
+    $stmt->bind_param("ii", $group['id'], $user_id);
+    $stmt->execute();
+    if ($stmt->get_result()->num_rows > 0) return ['success' => false, 'message' => 'You are already in this group.'];
+
+    // Check member cap
+    $stmt = $conn->prepare("SELECT COUNT(*) as cnt FROM group_members WHERE group_id = ?");
+    $stmt->bind_param("i", $group['id']);
+    $stmt->execute();
+    $cnt = $stmt->get_result()->fetch_assoc()['cnt'];
+    if ($cnt >= $group['max_members']) return ['success' => false, 'message' => 'This group is full (max ' . $group['max_members'] . ' members).'];
+
+    // Approval mode — create a join request instead of joining directly
+    if ($group['join_mode'] === 'approval') {
+        // Check for existing pending request
+        $stmt = $conn->prepare("SELECT id, status FROM group_join_requests WHERE group_id = ? AND user_id = ?");
+        $stmt->bind_param("ii", $group['id'], $user_id);
+        $stmt->execute();
+        $existing = $stmt->get_result()->fetch_assoc();
+        if ($existing) {
+            if ($existing['status'] === 'pending') return ['success' => false, 'message' => 'You already have a pending request for this group.'];
+            if ($existing['status'] === 'rejected') {
+                // Allow re-request: update to pending
+                $stmt = $conn->prepare("UPDATE group_join_requests SET status = 'pending', created_at = NOW() WHERE id = ?");
+                $stmt->bind_param("i", $existing['id']);
+                $stmt->execute();
+                return ['success' => true, 'pending' => true, 'message' => 'Join request sent! The group leader will review it.'];
+            }
+        }
+        $pending = 'pending';
+        $stmt = $conn->prepare("INSERT INTO group_join_requests (group_id, user_id, status) VALUES (?, ?, ?)");
+        $stmt->bind_param("iis", $group['id'], $user_id, $pending);
+        $stmt->execute();
+        return ['success' => true, 'pending' => true, 'message' => 'Join request sent! The group leader will review it.'];
+    }
+
+    // Open mode — join directly
+    $role = 'member';
+    $stmt = $conn->prepare("INSERT INTO group_members (group_id, user_id, role) VALUES (?, ?, ?)");
+    $stmt->bind_param("iis", $group['id'], $user_id, $role);
+    $stmt->execute();
+
+    // System message
+    $user = getUserInfo($user_id, $conn);
+    $sys_msg = htmlspecialchars($user['name']) . ' joined the group.';
+    $type = 'system';
+    $stmt = $conn->prepare("INSERT INTO group_messages (group_id, sender_id, message, message_type) VALUES (?, ?, ?, ?)");
+    $stmt->bind_param("iiss", $group['id'], $user_id, $sys_msg, $type);
+    $stmt->execute();
+
+    return ['success' => true, 'group_id' => $group['id']];
+}
+
+// Leave a group
+function leaveGroup($user_id, $group_id, $conn) {
+    $group = getGroupInfo($group_id, $user_id, $conn);
+    if (!$group) return false;
+
+    // If leader, transfer leadership or disband
+    if ($group['my_role'] === 'leader') {
+        $stmt = $conn->prepare("SELECT user_id FROM group_members WHERE group_id = ? AND user_id != ? ORDER BY joined_at ASC LIMIT 1");
+        $stmt->bind_param("ii", $group_id, $user_id);
+        $stmt->execute();
+        $next = $stmt->get_result()->fetch_assoc();
+        if ($next) {
+            // Transfer leadership
+            $stmt = $conn->prepare("UPDATE study_groups SET leader_id = ? WHERE id = ?");
+            $stmt->bind_param("ii", $next['user_id'], $group_id);
+            $stmt->execute();
+            $stmt = $conn->prepare("UPDATE group_members SET role = 'leader' WHERE group_id = ? AND user_id = ?");
+            $stmt->bind_param("ii", $group_id, $next['user_id']);
+            $stmt->execute();
+        } else {
+            // Last member — disband
+            $stmt = $conn->prepare("DELETE FROM study_groups WHERE id = ?");
+            $stmt->bind_param("i", $group_id);
+            $stmt->execute();
+            return true;
+        }
+    }
+
+    $stmt = $conn->prepare("DELETE FROM group_members WHERE group_id = ? AND user_id = ?");
+    $stmt->bind_param("ii", $group_id, $user_id);
+    $stmt->execute();
+
+    // System message
+    $user = getUserInfo($user_id, $conn);
+    $sys_msg = htmlspecialchars($user['name']) . ' left the group.';
+    $type = 'system';
+    $stmt = $conn->prepare("INSERT INTO group_messages (group_id, sender_id, message, message_type) VALUES (?, ?, ?, ?)");
+    $stmt->bind_param("iiss", $group_id, $user_id, $sys_msg, $type);
+    $stmt->execute();
+    return true;
+}
+
+// Remove a member (leader only)
+function removeGroupMember($leader_id, $target_id, $group_id, $conn) {
+    $group = getGroupInfo($group_id, $leader_id, $conn);
+    if (!$group || $group['my_role'] !== 'leader') return false;
+    if ($leader_id === $target_id) return false;
+
+    $stmt = $conn->prepare("DELETE FROM group_members WHERE group_id = ? AND user_id = ?");
+    $stmt->bind_param("ii", $group_id, $target_id);
+    $stmt->execute();
+
+    $target = getUserInfo($target_id, $conn);
+    $sys_msg = htmlspecialchars($target['name']) . ' was removed from the group.';
+    $type = 'system';
+    $stmt = $conn->prepare("INSERT INTO group_messages (group_id, sender_id, message, message_type) VALUES (?, ?, ?, ?)");
+    $stmt->bind_param("iiss", $group_id, $leader_id, $sys_msg, $type);
+    $stmt->execute();
+    return true;
+}
+
+// Assign a task within a group
+function assignGroupTask($group_id, $assigned_by, $assigned_to, $title, $description, $deadline, $priority, $conn) {
+    $stmt = $conn->prepare("INSERT INTO group_tasks (group_id, assigned_by, assigned_to, title, description, deadline, priority) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    $stmt->bind_param("iiissss", $group_id, $assigned_by, $assigned_to, $title, $description, $deadline, $priority);
+    if (!$stmt->execute()) return false;
+    $task_id = $conn->insert_id;
+
+    // System message
+    $by = getUserInfo($assigned_by, $conn);
+    $to = getUserInfo($assigned_to, $conn);
+    $sys_msg = htmlspecialchars($by['name']) . ' assigned "' . htmlspecialchars($title) . '" to ' . htmlspecialchars($to['name']) . '.';
+    $type = 'system';
+    $stmt = $conn->prepare("INSERT INTO group_messages (group_id, sender_id, message, message_type) VALUES (?, ?, ?, ?)");
+    $stmt->bind_param("iiss", $group_id, $assigned_by, $sys_msg, $type);
+    $stmt->execute();
+    return $task_id;
+}
+
+// Get group tasks with assignee info
+function getGroupTasks($group_id, $conn, $filter_user = null) {
+    $sql = "SELECT gt.*, 
+        ab.name as assigned_by_name, ab.profile_photo as assigned_by_photo,
+        at2.name as assigned_to_name, at2.profile_photo as assigned_to_photo
+        FROM group_tasks gt
+        JOIN users ab ON ab.id = gt.assigned_by
+        JOIN users at2 ON at2.id = gt.assigned_to
+        WHERE gt.group_id = ?";
+    if ($filter_user) {
+        $sql .= " AND gt.assigned_to = ?";
+        $sql .= " ORDER BY gt.status ASC, gt.deadline ASC";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("ii", $group_id, $filter_user);
+    } else {
+        $sql .= " ORDER BY gt.status ASC, gt.deadline ASC";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("i", $group_id);
+    }
+    $stmt->execute();
+    return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+}
+
+// Toggle group task status
+function toggleGroupTaskStatus($task_id, $user_id, $group_id, $conn) {
+    // Verify membership
+    $stmt = $conn->prepare("SELECT gt.*, gm.role FROM group_tasks gt
+        JOIN group_members gm ON gm.group_id = gt.group_id AND gm.user_id = ?
+        WHERE gt.id = ? AND gt.group_id = ?");
+    $stmt->bind_param("iii", $user_id, $task_id, $group_id);
+    $stmt->execute();
+    $task = $stmt->get_result()->fetch_assoc();
+    if (!$task) return false;
+
+    // Only assignee or leader can toggle
+    if ($task['assigned_to'] != $user_id && $task['role'] !== 'leader') return false;
+
+    $new_status = $task['status'] === 'Completed' ? 'Pending' : 'Completed';
+    $completed_at = $new_status === 'Completed' ? date('Y-m-d H:i:s') : null;
+    $stmt = $conn->prepare("UPDATE group_tasks SET status = ?, completed_at = ? WHERE id = ?");
+    $stmt->bind_param("ssi", $new_status, $completed_at, $task_id);
+    $stmt->execute();
+
+    // System message on completion
+    if ($new_status === 'Completed') {
+        $u = getUserInfo($user_id, $conn);
+        $sys_msg = '✅ ' . htmlspecialchars($u['name']) . ' completed "' . htmlspecialchars($task['title']) . '"!';
+        $type = 'system';
+        $stmt = $conn->prepare("INSERT INTO group_messages (group_id, sender_id, message, message_type) VALUES (?, ?, ?, ?)");
+        $stmt->bind_param("iiss", $group_id, $user_id, $sys_msg, $type);
+        $stmt->execute();
+    }
+    return $new_status;
+}
+
+// Delete a group task (leader or assigner)
+function deleteGroupTask($task_id, $user_id, $group_id, $conn) {
+    $stmt = $conn->prepare("SELECT gt.*, gm.role FROM group_tasks gt
+        JOIN group_members gm ON gm.group_id = gt.group_id AND gm.user_id = ?
+        WHERE gt.id = ? AND gt.group_id = ?");
+    $stmt->bind_param("iii", $user_id, $task_id, $group_id);
+    $stmt->execute();
+    $task = $stmt->get_result()->fetch_assoc();
+    if (!$task) return false;
+    if ($task['assigned_by'] != $user_id && $task['role'] !== 'leader') return false;
+
+    $stmt = $conn->prepare("DELETE FROM group_tasks WHERE id = ?");
+    $stmt->bind_param("i", $task_id);
+    return $stmt->execute();
+}
+
+// ── Group Chat Functions ──
+
+function sendGroupMessage($group_id, $sender_id, $message, $conn, $type = 'text', $reply_to = null) {
+    $reply_val = $reply_to ? intval($reply_to) : null;
+    $stmt = $conn->prepare("INSERT INTO group_messages (group_id, sender_id, message, message_type, reply_to_id) VALUES (?, ?, ?, ?, ?)");
+    $stmt->bind_param("iissi", $group_id, $sender_id, $message, $type, $reply_val);
+    $stmt->execute();
+    $msg_id = $conn->insert_id;
+    $stmt2 = $conn->prepare("UPDATE study_groups SET updated_at = NOW() WHERE id = ?");
+    $stmt2->bind_param("i", $group_id);
+    $stmt2->execute();
+    return $msg_id;
+}
+
+function getGroupMessages($group_id, $conn, $limit = 50, $before_id = null) {
+    $sql = "SELECT gm.*, u.name as sender_name, u.profile_photo as sender_photo,
+            rm.message as reply_message, rm.sender_id as reply_sender_id, ru.name as reply_sender_name
+            FROM group_messages gm
+            JOIN users u ON u.id = gm.sender_id
+            LEFT JOIN group_messages rm ON rm.id = gm.reply_to_id
+            LEFT JOIN users ru ON ru.id = rm.sender_id
+            WHERE gm.group_id = ?";
+    if ($before_id) {
+        $sql .= " AND gm.id < ? ORDER BY gm.created_at DESC LIMIT ?";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("iii", $group_id, $before_id, $limit);
+    } else {
+        $sql .= " ORDER BY gm.created_at DESC LIMIT ?";
+        $stmt = $conn->prepare($sql);
+        $stmt->bind_param("ii", $group_id, $limit);
+    }
+    $stmt->execute();
+    return array_reverse($stmt->get_result()->fetch_all(MYSQLI_ASSOC));
+}
+
+function getNewGroupMessages($group_id, $conn, $after_id) {
+    $stmt = $conn->prepare("SELECT gm.*, u.name as sender_name, u.profile_photo as sender_photo,
+            rm.message as reply_message, rm.sender_id as reply_sender_id, ru.name as reply_sender_name
+            FROM group_messages gm
+            JOIN users u ON u.id = gm.sender_id
+            LEFT JOIN group_messages rm ON rm.id = gm.reply_to_id
+            LEFT JOIN users ru ON ru.id = rm.sender_id
+            WHERE gm.group_id = ? AND gm.id > ?
+            ORDER BY gm.created_at ASC");
+    $stmt->bind_param("ii", $group_id, $after_id);
+    $stmt->execute();
+    return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+}
+
+function markGroupMessagesRead($group_id, $user_id, $last_id, $conn) {
+    $stmt = $conn->prepare("INSERT INTO group_message_reads (group_id, user_id, last_read_id)
+        VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE last_read_id = GREATEST(last_read_id, VALUES(last_read_id))");
+    $stmt->bind_param("iii", $group_id, $user_id, $last_id);
+    $stmt->execute();
+}
+
+function getUnreadGroupMessageCount($user_id, $conn) {
+    try {
+        $stmt = $conn->prepare("SELECT COALESCE(SUM(
+            (SELECT COUNT(*) FROM group_messages WHERE group_id = gm.group_id AND id > COALESCE(
+                (SELECT last_read_id FROM group_message_reads WHERE group_id = gm.group_id AND user_id = ?), 0
+            ))
+        ), 0) as total_unread
+        FROM group_members gm WHERE gm.user_id = ?");
+        $stmt->bind_param("ii", $user_id, $user_id);
+        $stmt->execute();
+        return (int)$stmt->get_result()->fetch_assoc()['total_unread'];
+    } catch (\Exception $e) {
+        return 0;
+    }
+}
+
+function checkGroupChatRateLimit($user_id, $group_id, $conn, $max = 15) {
+    $stmt = $conn->prepare("SELECT COUNT(*) as cnt FROM group_messages
+        WHERE sender_id = ? AND group_id = ? AND created_at >= DATE_SUB(NOW(), INTERVAL 1 MINUTE)");
+    $stmt->bind_param("ii", $user_id, $group_id);
+    $stmt->execute();
+    return $stmt->get_result()->fetch_assoc()['cnt'] < $max;
+}
+
+// Update group settings (leader only)
+function updateGroupSettings($group_id, $leader_id, $name, $description, $allow_member_assign, $conn, $allow_member_invite = 0, $join_mode = 'open') {
+    if (!in_array($join_mode, ['open', 'approval'])) $join_mode = 'open';
+    $stmt = $conn->prepare("UPDATE study_groups SET name = ?, description = ?, allow_member_assign = ?, allow_member_invite = ?, join_mode = ? WHERE id = ? AND leader_id = ?");
+    $stmt->bind_param("ssiisii", $name, $description, $allow_member_assign, $allow_member_invite, $join_mode, $group_id, $leader_id);
+    return $stmt->execute();
+}
+
+// ── Join Request Functions (approval mode) ──
+
+function getPendingJoinRequests($group_id, $conn) {
+    try {
+        $stmt = $conn->prepare("SELECT gjr.*, u.name, u.email, u.profile_photo, u.course, u.year_level
+            FROM group_join_requests gjr
+            JOIN users u ON u.id = gjr.user_id
+            WHERE gjr.group_id = ? AND gjr.status = 'pending'
+            ORDER BY gjr.created_at ASC");
+        $stmt->bind_param("i", $group_id);
+        $stmt->execute();
+        return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    } catch (\Exception $e) {
+        return [];
+    }
+}
+
+function approveJoinRequest($request_id, $leader_id, $conn) {
+    // Get request info
+    $stmt = $conn->prepare("SELECT gjr.*, sg.leader_id, sg.max_members
+        FROM group_join_requests gjr
+        JOIN study_groups sg ON sg.id = gjr.group_id
+        WHERE gjr.id = ? AND gjr.status = 'pending'");
+    $stmt->bind_param("i", $request_id);
+    $stmt->execute();
+    $req = $stmt->get_result()->fetch_assoc();
+    if (!$req || $req['leader_id'] != $leader_id) return false;
+
+    // Check member cap
+    $stmt = $conn->prepare("SELECT COUNT(*) as cnt FROM group_members WHERE group_id = ?");
+    $stmt->bind_param("i", $req['group_id']);
+    $stmt->execute();
+    $cnt = $stmt->get_result()->fetch_assoc()['cnt'];
+    if ($cnt >= $req['max_members']) return false;
+
+    // Add as member
+    $role = 'member';
+    $stmt = $conn->prepare("INSERT IGNORE INTO group_members (group_id, user_id, role) VALUES (?, ?, ?)");
+    $stmt->bind_param("iis", $req['group_id'], $req['user_id'], $role);
+    $stmt->execute();
+
+    // Mark approved
+    $stmt = $conn->prepare("UPDATE group_join_requests SET status = 'approved' WHERE id = ?");
+    $stmt->bind_param("i", $request_id);
+    $stmt->execute();
+
+    // System message
+    $user = getUserInfo($req['user_id'], $conn);
+    $sys_msg = htmlspecialchars($user['name']) . ' joined the group.';
+    $type = 'system';
+    $stmt = $conn->prepare("INSERT INTO group_messages (group_id, sender_id, message, message_type) VALUES (?, ?, ?, ?)");
+    $stmt->bind_param("iiss", $req['group_id'], $req['user_id'], $sys_msg, $type);
+    $stmt->execute();
+
+    return true;
+}
+
+function rejectJoinRequest($request_id, $leader_id, $conn) {
+    $stmt = $conn->prepare("SELECT gjr.group_id FROM group_join_requests gjr
+        JOIN study_groups sg ON sg.id = gjr.group_id
+        WHERE gjr.id = ? AND sg.leader_id = ? AND gjr.status = 'pending'");
+    $stmt->bind_param("ii", $request_id, $leader_id);
+    $stmt->execute();
+    if ($stmt->get_result()->num_rows === 0) return false;
+
+    $stmt = $conn->prepare("UPDATE group_join_requests SET status = 'rejected' WHERE id = ?");
+    $stmt->bind_param("i", $request_id);
+    return $stmt->execute();
+}
+
 ?>
