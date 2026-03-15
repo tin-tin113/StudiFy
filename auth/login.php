@@ -137,20 +137,5 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script src="<?php echo BASE_URL; ?>assets/js/main.js"></script>
-    <script>
-    function togglePasswordVisibility(btn) {
-        const input = btn.closest('.input-group').querySelector('input');
-        const icon = btn.querySelector('i');
-        if (input.type === 'password') {
-            input.type = 'text';
-            icon.classList.replace('fa-eye', 'fa-eye-slash');
-            btn.title = 'Hide password';
-        } else {
-            input.type = 'password';
-            icon.classList.replace('fa-eye-slash', 'fa-eye');
-            btn.title = 'Show password';
-        }
-    }
-    </script>
 </body>
 </html>

@@ -10,6 +10,7 @@ $b = $buddy_pair['buddy'];
 $b_initials = strtoupper(substr($b['name'], 0, 1));
 $is_online  = isUserOnline($buddy_pair['buddy_id'], $conn);
 $buddy_first = htmlspecialchars(explode(' ', $b['name'])[0]);
+$buddy_first_js = htmlspecialchars(addslashes(explode(' ', $b['name'])[0]), ENT_QUOTES);
 $unread_count = getUnreadBuddyMessageCount($user_id, $conn);
 
 // Last message for conversation preview
@@ -54,7 +55,7 @@ if ($last_msg) {
                     </a>
                 </li>
                 <li>
-                    <form method="POST" class="d-inline" onsubmit="return StudifyConfirm.form(event, 'Block User', 'Are you sure you want to block <?php echo $buddy_first; ?>? This will unpair you and prevent future requests.', 'danger')">
+                    <form method="POST" class="d-inline" onsubmit="return StudifyConfirm.form(event, 'Block User', 'Are you sure you want to block <?php echo $buddy_first_js; ?>? This will unpair you and prevent future requests.', 'danger')">
                         <input type="hidden" name="action" value="block_buddy">
                         <input type="hidden" name="block_id" value="<?php echo $buddy_pair['buddy_id']; ?>">
                         <?php echo csrfTokenField(); ?>
@@ -63,7 +64,7 @@ if ($last_msg) {
                 </li>
                 <li><hr class="dropdown-divider"></li>
                 <li>
-                    <form method="POST" class="d-inline" onsubmit="return StudifyConfirm.form(event, 'Unpair Study Buddy', 'Are you sure you want to unpair from <?php echo $buddy_first; ?>? Your chat history will be preserved.', 'warning')">
+                    <form method="POST" class="d-inline" onsubmit="return StudifyConfirm.form(event, 'Unpair Study Buddy', 'Are you sure you want to unpair from <?php echo $buddy_first_js; ?>? Your chat history will be preserved.', 'warning')">
                         <input type="hidden" name="action" value="unpair">
                         <?php echo csrfTokenField(); ?>
                         <button type="submit" class="dropdown-item text-danger"><i class="fas fa-unlink"></i> Unpair</button>

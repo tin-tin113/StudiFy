@@ -76,7 +76,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             } elseif ($file_size > $max_size) {
                 $error = 'Image too large. Maximum size is 2MB.';
             } else {
-                $ext = pathinfo($_FILES['profile_photo']['name'], PATHINFO_EXTENSION);
+                $ext_map = ['image/jpeg' => 'jpg', 'image/png' => 'png', 'image/gif' => 'gif', 'image/webp' => 'webp'];
+                $ext = $ext_map[$file_type] ?? 'jpg';
                 $filename = 'avatar_' . $user_id . '_' . time() . '.' . $ext;
                 $destination = $upload_dir . $filename;
                 
