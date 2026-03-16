@@ -17,11 +17,70 @@ if (isAdminRole()) {
 $page_title = 'Daily Planning';
 $user_id = getCurrentUserId();
 
-// Get selected date (default to today)
+// Get selected date (default to today) — validate format
 $selected_date = $_GET['date'] ?? date('Y-m-d');
-$date_obj = new DateTime($selected_date);
+$parsed_ts = strtotime($selected_date);
+if ($parsed_ts === false) {
+    $selected_date = date('Y-m-d');
+} else {
+    $selected_date = date('Y-m-d', $parsed_ts); // normalize to Y-m-d
+}
 $today = date('Y-m-d');
 $is_today = $selected_date === $today;
+
+// Get active semester and subjects (needed by the form in POST handler)
+$active_semester = getActiveSemester($user_id, $conn);
+$all_subjects = [];
+if ($active_semester) {
+    $all_subjects = getSemesterSubjects($active_semester['id'], $conn);
+}
+
+// Handle form submissions BEFORE data queries so data is fresh after changes
+$error = '';
+$success = '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    requireCSRF();
+    $action = $_POST['action'] ?? '';
+
+    if ($action === 'add_time_block') {
+        $subject_id = !empty($_POST['subject_id']) ? intval($_POST['subject_id']) : null;
+        $start_time = $_POST['start_time'] ?? '';
+        $end_time = $_POST['end_time'] ?? '';
+        $description = sanitize($_POST['description'] ?? '');
+
+        if (empty($start_time) || empty($end_time)) {
+            $error = 'Start and end times are required.';
+        } else {
+            $start_datetime = $selected_date . ' ' . $start_time . ':00';
+            $end_datetime = $selected_date . ' ' . $end_time . ':00';
+
+            // Include the time range in the description so it can be displayed
+            $time_range_label = date('g:i A', strtotime($start_datetime)) . ' - ' . date('g:i A', strtotime($end_datetime));
+            $full_description = '[' . $time_range_label . '] ' . $description;
+            $title = 'Study Block: ' . ($description ?: 'Focused Study');
+
+            if ($subject_id !== null) {
+                $stmt = $conn->prepare("INSERT INTO tasks
+                    (user_id, subject_id, title, description, type, priority, deadline, status)
+                    VALUES (?, ?, ?, ?, 'Other', 'Medium', ?, 'Pending')");
+                $stmt->bind_param("iisss", $user_id, $subject_id, $title, $full_description, $start_datetime);
+            } else {
+                $stmt = $conn->prepare("INSERT INTO tasks
+                    (user_id, subject_id, title, description, type, priority, deadline, status)
+                    VALUES (?, NULL, ?, ?, 'Other', 'Medium', ?, 'Pending')");
+                $stmt->bind_param("isss", $user_id, $title, $full_description, $start_datetime);
+            }
+
+            if ($stmt->execute()) {
+                header('Location: daily_planning.php?date=' . urlencode($selected_date));
+                exit();
+            } else {
+                $error = 'Error adding time block.';
+            }
+        }
+    }
+}
 
 // Get tasks for selected date and upcoming (date-range filter in SQL)
 $stmt = $conn->prepare("SELECT t.*, COALESCE(s.name, 'General') as subject_name, COALESCE(se.name, '') as semester_name
@@ -46,8 +105,8 @@ foreach ($tasks as $task) {
 }
 
 // Get study sessions for the day
-$stmt = $conn->prepare("SELECT * FROM study_sessions 
-    WHERE user_id = ? AND DATE(created_at) = ? 
+$stmt = $conn->prepare("SELECT * FROM study_sessions
+    WHERE user_id = ? AND DATE(created_at) = ?
     ORDER BY created_at ASC");
 $stmt->bind_param("is", $user_id, $selected_date);
 $stmt->execute();
@@ -64,52 +123,6 @@ $priority_tasks = array_filter($day_tasks, function($t) {
     return $t['priority'] === 'High' && $t['status'] !== 'Completed';
 });
 $priority_tasks = array_slice($priority_tasks, 0, 3);
-
-// Get active semester and subjects
-$active_semester = getActiveSemester($user_id, $conn);
-$all_subjects = [];
-if ($active_semester) {
-    $all_subjects = getSemesterSubjects($active_semester['id'], $conn);
-}
-
-// Handle form submissions
-$error = '';
-$success = '';
-
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    requireCSRF();
-    $action = $_POST['action'] ?? '';
-    
-    if ($action === 'add_time_block') {
-        $subject_id = !empty($_POST['subject_id']) ? intval($_POST['subject_id']) : null;
-        $start_time = $_POST['start_time'] ?? '';
-        $end_time = $_POST['end_time'] ?? '';
-        $description = sanitize($_POST['description'] ?? '');
-        
-        if (empty($start_time) || empty($end_time)) {
-            $error = 'Start and end times are required.';
-        } else {
-            // Store time block in session or create a simple tasks table entry
-            // For now, we'll create a task with a special type
-            $start_datetime = $selected_date . ' ' . $start_time . ':00';
-            $end_datetime = $selected_date . ' ' . $end_time . ':00';
-            
-            $stmt = $conn->prepare("INSERT INTO tasks 
-                (user_id, subject_id, title, description, type, priority, deadline, status) 
-                VALUES (?, ?, ?, ?, 'Other', 'Medium', ?, 'Pending')");
-            $title = 'Study Block: ' . ($description ?: 'Focused Study');
-            $stmt->bind_param("iisss", $user_id, $subject_id, $title, $description, $start_datetime);
-            
-            if ($stmt->execute()) {
-                $success = 'Time block added successfully!';
-                header('Location: daily_planning.php?date=' . $selected_date);
-                exit();
-            } else {
-                $error = 'Error adding time block.';
-            }
-        }
-    }
-}
 
 // Get time blocks (tasks with type 'Other' for the selected date)
 $time_blocks = [];
@@ -187,14 +200,14 @@ foreach ($day_tasks as $task) {
         <p class="text-muted mb-0" style="font-size: 13px;">Plan your day with time blocks and priorities</p>
     </div>
     <div class="d-flex align-items-center gap-2">
-        <a href="?date=<?php echo date('Y-m-d', strtotime($selected_date . ' -1 day')); ?>" 
+        <a href="?date=<?php echo htmlspecialchars(date('Y-m-d', strtotime($selected_date . ' -1 day'))); ?>"
            class="btn btn-sm btn-outline-secondary">
             <i class="fas fa-chevron-left"></i>
         </a>
-        <input type="date" class="form-control form-control-sm" style="width: 150px;" 
-               value="<?php echo $selected_date; ?>" 
+        <input type="date" class="form-control form-control-sm" style="width: 150px;"
+               value="<?php echo htmlspecialchars($selected_date); ?>"
                onchange="window.location.href='?date=' + this.value">
-        <a href="?date=<?php echo date('Y-m-d', strtotime($selected_date . ' +1 day')); ?>" 
+        <a href="?date=<?php echo htmlspecialchars(date('Y-m-d', strtotime($selected_date . ' +1 day'))); ?>"
            class="btn btn-sm btn-outline-secondary">
             <i class="fas fa-chevron-right"></i>
         </a>
@@ -207,13 +220,6 @@ foreach ($day_tasks as $task) {
 <?php if ($error): ?>
     <div class="alert alert-danger alert-dismissible fade show">
         <i class="fas fa-exclamation-circle"></i> <?php echo htmlspecialchars($error); ?>
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-    </div>
-<?php endif; ?>
-
-<?php if ($success): ?>
-    <div class="alert alert-success alert-dismissible fade show">
-        <i class="fas fa-check-circle"></i> <?php echo htmlspecialchars($success); ?>
         <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
     </div>
 <?php endif; ?>
@@ -271,20 +277,35 @@ foreach ($day_tasks as $task) {
             <div class="card-body">
                 <?php if (count($time_blocks) > 0): ?>
                     <div class="d-flex flex-column gap-2">
-                        <?php foreach ($time_blocks as $block): ?>
+                        <?php foreach ($time_blocks as $block):
+                            // Extract time range from description if stored as [X:XX AM - X:XX PM]
+                            $time_range = '';
+                            $block_desc = $block['description'] ?? '';
+                            if (preg_match('/^\[(.+? - .+?)\]\s*(.*)$/s', $block_desc, $m)) {
+                                $time_range = $m[1];
+                                $block_desc = $m[2];
+                            }
+                        ?>
                         <div class="time-block">
                             <div class="d-flex justify-content-between align-items-start">
                                 <div>
                                     <div class="fw-600"><?php echo htmlspecialchars(str_replace('Study Block: ', '', $block['title'])); ?></div>
                                     <small class="text-muted">
-                                        <i class="fas fa-clock"></i> 
-                                        <?php echo date('g:i A', strtotime($block['deadline'])); ?>
+                                        <i class="fas fa-clock"></i>
+                                        <?php if ($time_range): ?>
+                                            <?php echo htmlspecialchars($time_range); ?>
+                                        <?php else: ?>
+                                            <?php echo date('g:i A', strtotime($block['deadline'])); ?>
+                                        <?php endif; ?>
                                         <?php if ($block['subject_name']): ?>
                                             · <?php echo htmlspecialchars($block['subject_name']); ?>
                                         <?php endif; ?>
                                     </small>
+                                    <?php if ($block_desc): ?>
+                                        <div class="text-muted mt-1" style="font-size: 12px;"><?php echo htmlspecialchars($block_desc); ?></div>
+                                    <?php endif; ?>
                                 </div>
-                                <a href="tasks.php?task_id=<?php echo $block['id']; ?>" 
+                                <a href="tasks.php?task_id=<?php echo $block['id']; ?>"
                                    class="btn btn-sm btn-outline-secondary">
                                     <i class="fas fa-edit"></i>
                                 </a>
@@ -405,7 +426,7 @@ foreach ($day_tasks as $task) {
                     <a href="pomodoro.php" class="btn btn-outline-primary btn-sm">
                         <i class="fas fa-stopwatch"></i> Start Pomodoro
                     </a>
-                    <a href="calendar.php?date=<?php echo $selected_date; ?>" class="btn btn-outline-primary btn-sm">
+                    <a href="calendar.php?date=<?php echo htmlspecialchars($selected_date); ?>" class="btn btn-outline-primary btn-sm">
                         <i class="fas fa-calendar"></i> View Calendar
                     </a>
                 </div>
