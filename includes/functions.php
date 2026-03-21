@@ -1273,6 +1273,328 @@ function createTaskFromTemplate($template_id, $user_id, $subject_id, $deadline, 
 }
 
 // ============================================
+// BUDDY ENHANCEMENT FUNCTIONS (Weekly Goals, Check-ins, Pair Streak)
+// ============================================
+
+// Get current week's start date (Monday)
+function getWeekStart($date = null) {
+    $d = $date ? new DateTime($date) : new DateTime();
+    $day = $d->format('N'); // 1=Mon, 7=Sun
+    if ($day != 1) {
+        $d->modify('last monday');
+    }
+    return $d->format('Y-m-d');
+}
+
+// Get user's weekly goal
+function getBuddyWeeklyGoal($user_id, $conn, $week_start = null) {
+    $week = $week_start ?? getWeekStart();
+    $stmt = $conn->prepare("SELECT * FROM buddy_weekly_goals WHERE user_id = ? AND week_start = ?");
+    $stmt->bind_param("is", $user_id, $week);
+    $stmt->execute();
+    $result = $stmt->get_result()->fetch_assoc();
+    if (!$result) {
+        // Return default goal
+        return ['target_tasks' => 5, 'week_start' => $week, 'is_default' => true];
+    }
+    $result['is_default'] = false;
+    return $result;
+}
+
+// Set user's weekly goal
+function setBuddyWeeklyGoal($user_id, $target_tasks, $conn) {
+    $week = getWeekStart();
+    $target = max(1, min(50, intval($target_tasks))); // Clamp 1-50
+    $stmt = $conn->prepare("INSERT INTO buddy_weekly_goals (user_id, target_tasks, week_start)
+                            VALUES (?, ?, ?)
+                            ON DUPLICATE KEY UPDATE target_tasks = ?");
+    $stmt->bind_param("iisi", $user_id, $target, $week, $target);
+    return $stmt->execute();
+}
+
+// Get weekly goal progress
+function getWeeklyGoalProgress($user_id, $conn) {
+    $week_start = getWeekStart();
+    $week_end = date('Y-m-d', strtotime($week_start . ' +6 days'));
+
+    // Tasks completed this week
+    $stmt = $conn->prepare("SELECT COUNT(*) as completed FROM tasks
+                            WHERE user_id = ? AND status = 'Completed'
+                            AND DATE(updated_at) BETWEEN ? AND ?");
+    $stmt->bind_param("iss", $user_id, $week_start, $week_end);
+    $stmt->execute();
+    $completed = $stmt->get_result()->fetch_assoc()['completed'];
+
+    $goal = getBuddyWeeklyGoal($user_id, $conn);
+    $target = $goal['target_tasks'];
+    $progress_pct = $target > 0 ? min(100, round(($completed / $target) * 100)) : 0;
+
+    return [
+        'completed' => $completed,
+        'target' => $target,
+        'progress_pct' => $progress_pct,
+        'week_start' => $week_start,
+        'is_default_goal' => $goal['is_default'] ?? false
+    ];
+}
+
+// Get today's check-in status
+function getTodayCheckin($user_id, $conn) {
+    $today = date('Y-m-d');
+    $stmt = $conn->prepare("SELECT * FROM buddy_checkins WHERE user_id = ? AND check_date = ?");
+    $stmt->bind_param("is", $user_id, $today);
+    $stmt->execute();
+    return $stmt->get_result()->fetch_assoc();
+}
+
+// Set today's check-in
+function setTodayCheckin($user_id, $completed, $note, $conn) {
+    $today = date('Y-m-d');
+    $completed = $completed ? 1 : 0;
+    $note = !empty($note) ? substr(trim($note), 0, 255) : null;
+    $stmt = $conn->prepare("INSERT INTO buddy_checkins (user_id, check_date, completed, note)
+                            VALUES (?, ?, ?, ?)
+                            ON DUPLICATE KEY UPDATE completed = ?, note = ?");
+    $stmt->bind_param("isisis", $user_id, $today, $completed, $note, $completed, $note);
+    return $stmt->execute();
+}
+
+// Get check-in history (last N days)
+function getCheckinHistory($user_id, $conn, $days = 7) {
+    $stmt = $conn->prepare("SELECT * FROM buddy_checkins
+                            WHERE user_id = ? AND check_date >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+                            ORDER BY check_date DESC");
+    $stmt->bind_param("ii", $user_id, $days);
+    $stmt->execute();
+    return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+}
+
+// Calculate and update buddy pair streak
+function updateBuddyPairStreak($user_id, $buddy_id, $conn) {
+    // Get the study_buddies record
+    $stmt = $conn->prepare("SELECT id, pair_streak, pair_streak_updated FROM study_buddies
+                            WHERE status = 'accepted' AND (
+                                (requester_id = ? AND partner_id = ?) OR (requester_id = ? AND partner_id = ?)
+                            )");
+    $stmt->bind_param("iiii", $user_id, $buddy_id, $buddy_id, $user_id);
+    $stmt->execute();
+    $pair = $stmt->get_result()->fetch_assoc();
+    if (!$pair) return 0;
+
+    $today = date('Y-m-d');
+    $yesterday = date('Y-m-d', strtotime('-1 day'));
+
+    // Check if both users were active today (completed a task OR checked in)
+    $both_active_today = true;
+    foreach ([$user_id, $buddy_id] as $uid) {
+        $stmt = $conn->prepare("SELECT
+            (SELECT COUNT(*) FROM tasks WHERE user_id = ? AND status = 'Completed' AND DATE(updated_at) = ?) +
+            (SELECT COUNT(*) FROM buddy_checkins WHERE user_id = ? AND check_date = ? AND completed = 1) as activity");
+        $stmt->bind_param("isis", $uid, $today, $uid, $today);
+        $stmt->execute();
+        if ($stmt->get_result()->fetch_assoc()['activity'] == 0) {
+            $both_active_today = false;
+            break;
+        }
+    }
+
+    $new_streak = $pair['pair_streak'];
+    $last_updated = $pair['pair_streak_updated'];
+
+    if ($both_active_today) {
+        if ($last_updated === $today) {
+            // Already updated today
+        } elseif ($last_updated === $yesterday) {
+            // Consecutive day - increment
+            $new_streak++;
+        } else {
+            // Streak broken or first day
+            $new_streak = 1;
+        }
+
+        $stmt = $conn->prepare("UPDATE study_buddies SET pair_streak = ?, pair_streak_updated = ? WHERE id = ?");
+        $stmt->bind_param("isi", $new_streak, $today, $pair['id']);
+        $stmt->execute();
+    }
+
+    return $new_streak;
+}
+
+// Get buddy pair streak
+function getBuddyPairStreak($user_id, $buddy_id, $conn) {
+    $stmt = $conn->prepare("SELECT pair_streak FROM study_buddies
+                            WHERE status = 'accepted' AND (
+                                (requester_id = ? AND partner_id = ?) OR (requester_id = ? AND partner_id = ?)
+                            )");
+    $stmt->bind_param("iiii", $user_id, $buddy_id, $buddy_id, $user_id);
+    $stmt->execute();
+    $result = $stmt->get_result()->fetch_assoc();
+    return $result ? $result['pair_streak'] : 0;
+}
+
+// Get weekly comparison data for chart (last 4 weeks)
+function getWeeklyComparisonData($user_id, $buddy_id, $conn) {
+    $data = ['user' => [], 'buddy' => [], 'labels' => []];
+
+    for ($i = 3; $i >= 0; $i--) {
+        $week_start = date('Y-m-d', strtotime("monday -$i weeks"));
+        $week_end = date('Y-m-d', strtotime($week_start . ' +6 days'));
+        $data['labels'][] = date('M j', strtotime($week_start));
+
+        foreach (['user' => $user_id, 'buddy' => $buddy_id] as $key => $uid) {
+            $stmt = $conn->prepare("SELECT COUNT(*) as cnt FROM tasks
+                                    WHERE user_id = ? AND status = 'Completed'
+                                    AND DATE(updated_at) BETWEEN ? AND ?");
+            $stmt->bind_param("iss", $uid, $week_start, $week_end);
+            $stmt->execute();
+            $data[$key][] = $stmt->get_result()->fetch_assoc()['cnt'];
+        }
+    }
+
+    return $data;
+}
+
+// Get scheduled nudges for a user
+function getScheduledNudges($user_id, $conn) {
+    $stmt = $conn->prepare("SELECT * FROM buddy_scheduled_nudges WHERE user_id = ? ORDER BY day_of_week, nudge_time");
+    $stmt->bind_param("i", $user_id);
+    $stmt->execute();
+    return $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+}
+
+// Add a scheduled nudge
+function addScheduledNudge($user_id, $day_of_week, $time, $message, $conn) {
+    $day = max(0, min(6, intval($day_of_week)));
+    $message = substr(trim($message), 0, 500);
+    if (empty($message)) return false;
+
+    $stmt = $conn->prepare("INSERT INTO buddy_scheduled_nudges (user_id, day_of_week, nudge_time, message) VALUES (?, ?, ?, ?)");
+    $stmt->bind_param("iiss", $user_id, $day, $time, $message);
+    return $stmt->execute() ? $conn->insert_id : false;
+}
+
+// Delete a scheduled nudge
+function deleteScheduledNudge($nudge_id, $user_id, $conn) {
+    $stmt = $conn->prepare("DELETE FROM buddy_scheduled_nudges WHERE id = ? AND user_id = ?");
+    $stmt->bind_param("ii", $nudge_id, $user_id);
+    return $stmt->execute() && $stmt->affected_rows > 0;
+}
+
+// Toggle scheduled nudge active status
+function toggleScheduledNudge($nudge_id, $user_id, $conn) {
+    $stmt = $conn->prepare("UPDATE buddy_scheduled_nudges SET is_active = NOT is_active WHERE id = ? AND user_id = ?");
+    $stmt->bind_param("ii", $nudge_id, $user_id);
+    return $stmt->execute();
+}
+
+// Process scheduled nudges (call from cron or notification checker)
+function processScheduledNudges($conn) {
+    $now = new DateTime();
+    $day_of_week = $now->format('w'); // 0=Sun, 6=Sat
+    $current_time = $now->format('H:i:00');
+    $window_start = date('H:i:00', strtotime('-5 minutes'));
+
+    // Find nudges for current day/time that haven't been sent today
+    $stmt = $conn->prepare("SELECT sn.*, sb.buddy_id as target_buddy_id
+                            FROM buddy_scheduled_nudges sn
+                            JOIN study_buddies sb ON (sb.user_id = sn.user_id OR sb.buddy_id = sn.user_id) AND sb.status = 'accepted'
+                            WHERE sn.is_active = 1
+                            AND sn.day_of_week = ?
+                            AND sn.nudge_time BETWEEN ? AND ?
+                            AND (sn.last_sent_at IS NULL OR DATE(sn.last_sent_at) < CURDATE())");
+    $stmt->bind_param("iss", $day_of_week, $window_start, $current_time);
+    $stmt->execute();
+    $nudges = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+
+    foreach ($nudges as $nudge) {
+        // Determine the buddy to send to
+        $target = $nudge['target_buddy_id'];
+        if ($target == $nudge['user_id']) {
+            // Get the other person in the pair
+            $stmt2 = $conn->prepare("SELECT IF(user_id = ?, buddy_id, user_id) as buddy FROM study_buddies
+                                     WHERE status = 'accepted' AND (user_id = ? OR buddy_id = ?)");
+            $stmt2->bind_param("iii", $nudge['user_id'], $nudge['user_id'], $nudge['user_id']);
+            $stmt2->execute();
+            $row = $stmt2->get_result()->fetch_assoc();
+            $target = $row ? $row['buddy'] : null;
+        }
+
+        if ($target) {
+            // Send the nudge as a chat message
+            sendChatMessage($nudge['user_id'], $target, "⏰ " . $nudge['message'], $conn, 'nudge');
+
+            // Mark as sent
+            $stmt2 = $conn->prepare("UPDATE buddy_scheduled_nudges SET last_sent_at = NOW() WHERE id = ?");
+            $stmt2->bind_param("i", $nudge['id']);
+            $stmt2->execute();
+        }
+    }
+
+    return count($nudges);
+}
+
+// Get enhanced buddy progress (weekly-focused)
+function getEnhancedBuddyProgress($buddy_id, $user_id, $conn) {
+    $week_start = getWeekStart();
+    $week_end = date('Y-m-d', strtotime($week_start . ' +6 days'));
+
+    // Weekly tasks completed
+    $stmt = $conn->prepare("SELECT COUNT(*) as cnt FROM tasks
+                            WHERE user_id = ? AND status = 'Completed'
+                            AND DATE(updated_at) BETWEEN ? AND ?");
+    $stmt->bind_param("iss", $buddy_id, $week_start, $week_end);
+    $stmt->execute();
+    $week_tasks = $stmt->get_result()->fetch_assoc()['cnt'];
+
+    // Weekly study time
+    $stmt = $conn->prepare("SELECT COALESCE(SUM(duration), 0) as mins FROM study_sessions
+                            WHERE user_id = ? AND DATE(created_at) BETWEEN ? AND ?");
+    $stmt->bind_param("iss", $buddy_id, $week_start, $week_end);
+    $stmt->execute();
+    $week_minutes = $stmt->get_result()->fetch_assoc()['mins'];
+
+    // Today's check-in
+    $checkin = getTodayCheckin($buddy_id, $conn);
+
+    // Weekly goal progress
+    $goal_progress = getWeeklyGoalProgress($buddy_id, $conn);
+
+    // Personal streak (consecutive days with activity)
+    $stmt = $conn->prepare("SELECT DISTINCT DATE(updated_at) as d FROM tasks
+                            WHERE user_id = ? AND status = 'Completed'
+                            AND updated_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)
+                            ORDER BY d DESC");
+    $stmt->bind_param("i", $buddy_id);
+    $stmt->execute();
+    $days = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
+    $streak = 0;
+    $check = new DateTime('today');
+    foreach ($days as $row) {
+        $day = new DateTime($row['d']);
+        if ($day->format('Y-m-d') === $check->format('Y-m-d')) {
+            $streak++;
+            $check->modify('-1 day');
+        } else {
+            break;
+        }
+    }
+
+    // Buddy pair streak
+    $pair_streak = getBuddyPairStreak($user_id, $buddy_id, $conn);
+
+    return [
+        'week_tasks' => $week_tasks,
+        'week_minutes' => $week_minutes,
+        'week_hours' => round($week_minutes / 60, 1),
+        'streak' => $streak,
+        'pair_streak' => $pair_streak,
+        'checked_in_today' => $checkin ? ($checkin['completed'] ? 'yes' : 'no') : 'pending',
+        'checkin_note' => $checkin['note'] ?? null,
+        'goal_progress' => $goal_progress
+    ];
+}
+
+// ============================================
 // STUDY GROUP FUNCTIONS (v6.0)
 // ============================================
 

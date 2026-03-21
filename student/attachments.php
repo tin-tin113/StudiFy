@@ -8,8 +8,13 @@ require_once '../config/db.php';
 require_once '../includes/auth.php';
 require_once '../includes/functions.php';
 
-requireLogin();
 header('Content-Type: application/json');
+
+// Check authentication - return JSON error instead of redirect for API
+if (!isLoggedIn()) {
+    echo json_encode(['success' => false, 'message' => 'Not authenticated']);
+    exit();
+}
 
 $user_id = getCurrentUserId();
 $action  = $_POST['action'] ?? $_GET['action'] ?? '';
@@ -22,8 +27,9 @@ if ($action === 'upload') {
 
     $task_id = intval($_POST['task_id'] ?? 0);
     $note_id = intval($_POST['note_id'] ?? 0);
+    $group_task_id = intval($_POST['group_task_id'] ?? 0);
 
-    if ($task_id <= 0 && $note_id <= 0) {
+    if ($task_id <= 0 && $note_id <= 0 && $group_task_id <= 0) {
         echo json_encode(['success' => false, 'message' => 'Invalid target']); exit();
     }
 
@@ -39,6 +45,17 @@ if ($action === 'upload') {
     if ($note_id > 0) {
         $chk = $conn->prepare("SELECT id FROM notes WHERE id = ? AND user_id = ?");
         $chk->bind_param("ii", $note_id, $user_id);
+        $chk->execute();
+        if ($chk->get_result()->num_rows === 0) {
+            echo json_encode(['success' => false, 'message' => 'Access denied']); exit();
+        }
+    }
+    // Verify group task access (user must be a member of the group)
+    if ($group_task_id > 0) {
+        $chk = $conn->prepare("SELECT gt.id FROM group_tasks gt
+            JOIN group_members gm ON gt.group_id = gm.group_id
+            WHERE gt.id = ? AND gm.user_id = ?");
+        $chk->bind_param("ii", $group_task_id, $user_id);
         $chk->execute();
         if ($chk->get_result()->num_rows === 0) {
             echo json_encode(['success' => false, 'message' => 'Access denied']); exit();
@@ -88,11 +105,33 @@ if ($action === 'upload') {
     $file_path = 'uploads/attachments/' . $stored;
     $file_size = $file['size'];
 
-    $tid = $task_id > 0 ? $task_id : null;
-    $nid = $note_id > 0 ? $note_id : null;
+    // Build dynamic INSERT - only include the target column that has a value
+    // This avoids CHECK constraint issues (bind_param converts null to 0)
+    $columns = ['user_id', 'file_name', 'file_path', 'file_size', 'file_type'];
+    $placeholders = ['?', '?', '?', '?', '?'];
+    $types = 'issis';
+    $values = [$user_id, $orig_name, $file_path, $file_size, $mime];
 
-    $stmt = $conn->prepare("INSERT INTO attachments (user_id, task_id, note_id, file_name, file_path, file_size, file_type) VALUES (?, ?, ?, ?, ?, ?, ?)");
-    $stmt->bind_param("iiissis", $user_id, $tid, $nid, $orig_name, $file_path, $file_size, $mime);
+    if ($task_id > 0) {
+        $columns[] = 'task_id';
+        $placeholders[] = '?';
+        $types .= 'i';
+        $values[] = $task_id;
+    } elseif ($note_id > 0) {
+        $columns[] = 'note_id';
+        $placeholders[] = '?';
+        $types .= 'i';
+        $values[] = $note_id;
+    } elseif ($group_task_id > 0) {
+        $columns[] = 'group_task_id';
+        $placeholders[] = '?';
+        $types .= 'i';
+        $values[] = $group_task_id;
+    }
+
+    $sql = "INSERT INTO attachments (" . implode(', ', $columns) . ") VALUES (" . implode(', ', $placeholders) . ")";
+    $stmt = $conn->prepare($sql);
+    $stmt->bind_param($types, ...$values);
 
     if ($stmt->execute()) {
         $att_id = $conn->insert_id;
@@ -118,6 +157,7 @@ if ($action === 'upload') {
 if ($action === 'list') {
     $task_id = intval($_GET['task_id'] ?? 0);
     $note_id = intval($_GET['note_id'] ?? 0);
+    $group_task_id = intval($_GET['group_task_id'] ?? 0);
 
     if ($task_id > 0) {
         $stmt = $conn->prepare("SELECT a.* FROM attachments a JOIN tasks t ON a.task_id = t.id WHERE a.task_id = ? AND t.user_id = ? ORDER BY a.created_at ASC");
@@ -125,6 +165,14 @@ if ($action === 'list') {
     } elseif ($note_id > 0) {
         $stmt = $conn->prepare("SELECT a.* FROM attachments a JOIN notes n ON a.note_id = n.id WHERE a.note_id = ? AND n.user_id = ? ORDER BY a.created_at ASC");
         $stmt->bind_param("ii", $note_id, $user_id);
+    } elseif ($group_task_id > 0) {
+        // For group tasks, user must be a member of the group
+        $stmt = $conn->prepare("SELECT a.* FROM attachments a
+            JOIN group_tasks gt ON a.group_task_id = gt.id
+            JOIN group_members gm ON gt.group_id = gm.group_id
+            WHERE a.group_task_id = ? AND gm.user_id = ?
+            ORDER BY a.created_at ASC");
+        $stmt->bind_param("ii", $group_task_id, $user_id);
     } else {
         echo json_encode(['success' => false, 'message' => 'Invalid target']); exit();
     }
@@ -152,10 +200,22 @@ if ($action === 'delete') {
         echo json_encode(['success' => false, 'message' => 'Invalid ID']); exit();
     }
 
+    // First check if it's a regular attachment (task/note) owned by user
     $stmt = $conn->prepare("SELECT a.* FROM attachments a WHERE a.id = ? AND a.user_id = ?");
     $stmt->bind_param("ii", $att_id, $user_id);
     $stmt->execute();
     $att = $stmt->get_result()->fetch_assoc();
+
+    // If not found as owner, check if it's a group task attachment where user is a group member
+    if (!$att) {
+        $stmt = $conn->prepare("SELECT a.* FROM attachments a
+            JOIN group_tasks gt ON a.group_task_id = gt.id
+            JOIN group_members gm ON gt.group_id = gm.group_id
+            WHERE a.id = ? AND gm.user_id = ?");
+        $stmt->bind_param("ii", $att_id, $user_id);
+        $stmt->execute();
+        $att = $stmt->get_result()->fetch_assoc();
+    }
 
     if (!$att) {
         echo json_encode(['success' => false, 'message' => 'Not found or access denied']); exit();
@@ -166,8 +226,9 @@ if ($action === 'delete') {
         unlink($full_path);
     }
 
-    $del = $conn->prepare("DELETE FROM attachments WHERE id = ? AND user_id = ?");
-    $del->bind_param("ii", $att_id, $user_id);
+    // Delete attachment - we've already verified access above
+    $del = $conn->prepare("DELETE FROM attachments WHERE id = ?");
+    $del->bind_param("i", $att_id);
 
     if ($del->execute()) {
         echo json_encode(['success' => true, 'message' => 'Attachment deleted']);

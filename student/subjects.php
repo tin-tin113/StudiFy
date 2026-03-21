@@ -146,16 +146,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $sem_id = intval($_POST['semester_id'] ?? 0);
         $name = sanitize($_POST['name'] ?? '');
         $instructor = sanitize($_POST['instructor_name'] ?? '');
-        
+
         if (empty($name) || $sem_id <= 0) {
             $error = 'Subject name and semester are required.';
         } else {
-            // Verify semester belongs to current user
-            $sem_check = $conn->prepare("SELECT id FROM semesters WHERE id = ? AND user_id = ?");
+            // Verify semester belongs to current user AND is active
+            $sem_check = $conn->prepare("SELECT id, is_active FROM semesters WHERE id = ? AND user_id = ?");
             $sem_check->bind_param("ii", $sem_id, $user_id);
             $sem_check->execute();
-            if ($sem_check->get_result()->num_rows === 0) {
+            $sem_result = $sem_check->get_result()->fetch_assoc();
+            if (!$sem_result) {
                 $error = 'Semester not found or access denied.';
+            } elseif (!$sem_result['is_active']) {
+                $error = 'Cannot add subjects to an inactive semester. Please activate the semester first.';
             } else {
                 $stmt = $conn->prepare("INSERT INTO subjects (semester_id, name, instructor_name) VALUES (?, ?, ?)");
                 $stmt->bind_param("iss", $sem_id, $name, $instructor);
@@ -222,12 +225,20 @@ if ($semester_id > 0) {
     $stmt->execute();
     $selected_semester = $stmt->get_result()->fetch_assoc();
 }
+
+// Determine if adding subjects should be allowed (semester must be selected AND active)
+$can_add_subject = $selected_semester && $selected_semester['is_active'];
 ?>
 <?php include '../includes/header.php'; ?>
 
         <div class="page-header">
             <h2><i class="fas fa-book"></i> Subjects</h2>
-            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addSubjectModal" <?php echo $semester_id <= 0 ? 'disabled' : ''; ?>>
+            <button class="btn btn-primary" data-bs-toggle="modal" data-bs-target="#addSubjectModal" <?php echo !$can_add_subject ? 'disabled' : ''; ?>
+                <?php if (!$can_add_subject && $selected_semester): ?>
+                    title="Cannot add subjects to an inactive semester"
+                <?php elseif (!$can_add_subject): ?>
+                    title="Please select an active semester first"
+                <?php endif; ?>>
                 <i class="fas fa-plus"></i> Add Subject
             </button>
         </div>
@@ -248,13 +259,23 @@ if ($semester_id > 0) {
                         <option value="">– Select a Semester –</option>
                         <?php foreach ($semesters as $sem): ?>
                             <option value="<?php echo $sem['id']; ?>" <?php echo $semester_id == $sem['id'] ? 'selected' : ''; ?>>
-                                <?php echo htmlspecialchars($sem['name']); ?> <?php echo $sem['is_active'] ? '(Active)' : ''; ?>
+                                <?php echo htmlspecialchars($sem['name']); ?> <?php echo $sem['is_active'] ? '(Active)' : '(Inactive)'; ?>
                             </option>
                         <?php endforeach; ?>
                     </select>
                 </form>
             </div>
         </div>
+
+        <?php if ($selected_semester && !$selected_semester['is_active']): ?>
+        <div class="alert alert-warning d-flex align-items-center mb-4" role="alert">
+            <i class="fas fa-exclamation-triangle me-2"></i>
+            <div>
+                <strong>Inactive Semester</strong> - You are viewing an inactive semester. Adding new subjects is disabled.
+                <a href="semesters.php" class="alert-link">Manage Semesters</a> to activate it.
+            </div>
+        </div>
+        <?php endif; ?>
 
         <!-- Subjects List -->
         <?php if ($semester_id > 0): ?>
@@ -326,10 +347,17 @@ if ($semester_id > 0) {
                     <div class="empty-state">
                         <i class="fas fa-book-open"></i>
                         <h5>No Subjects Yet</h5>
-                        <p>Add subjects to this semester to start tracking tasks.</p>
-                        <button class="btn btn-primary mt-2" data-bs-toggle="modal" data-bs-target="#addSubjectModal">
-                            <i class="fas fa-plus"></i> Add Subject
-                        </button>
+                        <?php if ($can_add_subject): ?>
+                            <p>Add subjects to this semester to start tracking tasks.</p>
+                            <button class="btn btn-primary mt-2" data-bs-toggle="modal" data-bs-target="#addSubjectModal">
+                                <i class="fas fa-plus"></i> Add Subject
+                            </button>
+                        <?php else: ?>
+                            <p>This semester is inactive. Activate it to add subjects.</p>
+                            <a href="semesters.php" class="btn btn-secondary mt-2">
+                                <i class="fas fa-calendar-alt"></i> Manage Semesters
+                            </a>
+                        <?php endif; ?>
                     </div>
                 </div>
             <?php endif; ?>

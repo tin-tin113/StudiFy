@@ -23,6 +23,9 @@ if (!validateCSRFToken($_POST['csrf_token'] ?? '')) {
     exit();
 }
 
+// Release session lock early — this endpoint only reads session for auth/CSRF
+session_write_close();
+
 $user_id = getCurrentUserId();
 $action = $_POST['action'] ?? '';
 

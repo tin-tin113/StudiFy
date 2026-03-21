@@ -34,6 +34,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WI
         echo json_encode(['success' => false, 'message' => 'Invalid security token']);
         exit();
     }
+    // Release session lock early — allows concurrent requests (e.g. chat polling + page loads)
+    session_write_close();
     $action = $_POST['action'] ?? '';
     updateUserActivity($user_id, $conn);
 

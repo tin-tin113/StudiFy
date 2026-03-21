@@ -6,15 +6,22 @@
 
 /**
  * Calculate current study streak (consecutive days with completed tasks OR study sessions)
+ * Uses static cache to avoid recomputing on the same request (dashboard calls this 2-3x).
+ * Bounded to last 90 days to avoid unbounded full-history scans.
  */
 function getStudyStreak(int $user_id, $conn): array {
-    // Get all unique days that had activity (completed tasks OR focus sessions), newest first
+    static $cache = [];
+    if (isset($cache[$user_id])) return $cache[$user_id];
+
+    // Only scan the last 90 days — a streak longer than that is extremely rare
     $sql = "SELECT DISTINCT DATE(activity_date) as day FROM (
         SELECT updated_at AS activity_date FROM tasks
           WHERE user_id = ? AND status = 'Completed'
+          AND updated_at >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
         UNION ALL
         SELECT created_at AS activity_date FROM study_sessions
           WHERE user_id = ? AND session_type = 'Focus'
+          AND created_at >= DATE_SUB(CURDATE(), INTERVAL 90 DAY)
     ) combined
     ORDER BY day DESC";
 
@@ -66,7 +73,7 @@ function getStudyStreak(int $user_id, $conn): array {
         $last7[$d] = in_array($d, $days);
     }
 
-    return [
+    return $cache[$user_id] = [
         'current' => $current,
         'longest' => $longest,
         'today'   => $has_today,
@@ -75,30 +82,27 @@ function getStudyStreak(int $user_id, $conn): array {
 }
 
 /**
- * Get all achievements a user has unlocked + which they are eligible for but haven't claimed
+ * Get all achievements a user has unlocked + which they are eligible for but haven't claimed.
+ * Accepts optional pre-computed $streak to avoid duplicate getStudyStreak() call.
  */
-function checkAndAwardAchievements(int $user_id, $conn): array {
-    // Gather user stats
+function checkAndAwardAchievements(int $user_id, $conn, ?array $streak = null): array {
+    // Gather user stats — combined into a single query (was 3 separate queries)
     $stats_q = $conn->prepare("SELECT
-        COUNT(*) as total_tasks,
-        SUM(status = 'Completed') as completed_tasks,
-        COUNT(DISTINCT subject_id) as subjects_used
-        FROM tasks WHERE user_id = ? AND parent_id IS NULL");
-    $stats_q->bind_param("i", $user_id);
+        (SELECT COUNT(*) FROM tasks WHERE user_id = ? AND parent_id IS NULL) as total_tasks,
+        (SELECT COALESCE(SUM(status = 'Completed'), 0) FROM tasks WHERE user_id = ? AND parent_id IS NULL) as completed_tasks,
+        (SELECT COUNT(*) FROM notes WHERE user_id = ?) as note_count,
+        (SELECT COALESCE(SUM(duration), 0) FROM study_sessions WHERE user_id = ? AND session_type = 'Focus') as pomo_mins");
+    $stats_q->bind_param("iiii", $user_id, $user_id, $user_id, $user_id);
     $stats_q->execute();
     $stats = $stats_q->get_result()->fetch_assoc();
 
-    $notes_q = $conn->prepare("SELECT COUNT(*) as c FROM notes WHERE user_id = ?");
-    $notes_q->bind_param("i", $user_id);
-    $notes_q->execute();
-    $note_count = $notes_q->get_result()->fetch_assoc()['c'];
+    $note_count = intval($stats['note_count']);
+    $pomo_mins  = intval($stats['pomo_mins']);
 
-    $pomo_q = $conn->prepare("SELECT COALESCE(SUM(duration), 0) as mins FROM study_sessions WHERE user_id = ? AND session_type = 'Focus'");
-    $pomo_q->bind_param("i", $user_id);
-    $pomo_q->execute();
-    $pomo_mins = $pomo_q->get_result()->fetch_assoc()['mins'];
-
-    $streak = getStudyStreak($user_id, $conn);
+    // Reuse pre-computed streak if provided, otherwise compute (static-cached)
+    if ($streak === null) {
+        $streak = getStudyStreak($user_id, $conn);
+    }
 
     $total     = intval($stats['total_tasks'] ?? 0);
     $completed = intval($stats['completed_tasks'] ?? 0);
@@ -143,10 +147,11 @@ function checkAndAwardAchievements(int $user_id, $conn): array {
 
     $newly_awarded = [];
 
+    // Prepare INSERT once outside the loop (was prepared inside on every iteration)
+    $ins = $conn->prepare("INSERT IGNORE INTO user_achievements (user_id, achievement_key) VALUES (?, ?)");
+
     foreach ($conditions as $key => $met) {
         if ($met && !isset($unlocked_map[$key])) {
-            // Award it
-            $ins = $conn->prepare("INSERT IGNORE INTO user_achievements (user_id, achievement_key) VALUES (?, ?)");
             $ins->bind_param("is", $user_id, $key);
             $ins->execute();
             $unlocked_map[$key] = date('Y-m-d H:i:s');

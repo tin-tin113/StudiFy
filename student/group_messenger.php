@@ -319,6 +319,14 @@ $member_count = count($group_members);
                                     <?php if (!empty($t['description'])): ?>
                                         <small class="text-muted"><?php echo htmlspecialchars($t['description']); ?></small>
                                     <?php endif; ?>
+                                    <!-- Attachments for this group task -->
+                                    <div class="group-task-attachments" id="gatt-task-<?php echo $t['id']; ?>" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;"></div>
+                                    <div style="margin-top:4px;">
+                                        <label title="Attach a file" style="cursor:pointer;font-size:11px;color:var(--primary);">
+                                            <i class="fas fa-paperclip"></i> Attach
+                                            <input type="file" style="display:none;" onchange="GroupPage.uploadAttachment(<?php echo $t['id']; ?>, this)">
+                                        </label>
+                                    </div>
                                 </td>
                                 <td><i class="fas fa-user-circle text-muted me-1"></i><?php echo htmlspecialchars($t['assigned_to_name']); ?></td>
                                 <td>
@@ -398,6 +406,8 @@ $member_count = count($group_members);
                                 </td>
                                 <td>
                                     <div class="fw-600 text-decoration-line-through text-muted"><?php echo htmlspecialchars($t['title']); ?></div>
+                                    <!-- Attachments for completed group task (view only) -->
+                                    <div class="group-task-attachments" id="gatt-task-<?php echo $t['id']; ?>" style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px;"></div>
                                 </td>
                                 <td><i class="fas fa-user-circle text-muted me-1"></i><?php echo htmlspecialchars($t['assigned_to_name']); ?></td>
                                 <td>
@@ -604,6 +614,99 @@ const GroupPage = {
             body: body.toString()
         });
         return r.json();
+    },
+
+    // Attachment methods
+    uploadAttachment(taskId, input) {
+        if (!input.files.length) return;
+        const file = input.files[0];
+        const fd = new FormData();
+        fd.append('action', 'upload');
+        fd.append('group_task_id', taskId);
+        fd.append('file', file);
+        fd.append('csrf_token', this.csrfToken);
+
+        StudifyToast.info('Uploading...', file.name);
+        fetch('<?php echo BASE_URL; ?>student/attachments.php', { method: 'POST', body: fd, credentials: 'same-origin' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) {
+                    StudifyToast.success('Uploaded', data.attachment.file_name);
+                    this.loadTaskAttachments(taskId);
+                } else {
+                    StudifyToast.error('Upload Failed', data.message);
+                }
+                input.value = '';
+            })
+            .catch(() => { StudifyToast.error('Error', 'Network error'); input.value = ''; });
+    },
+
+    loadTaskAttachments(taskId) {
+        const container = document.getElementById('gatt-task-' + taskId);
+        if (!container) return;
+        fetch('<?php echo BASE_URL; ?>student/attachments.php?action=list&group_task_id=' + taskId, { credentials: 'same-origin' })
+            .then(r => r.json())
+            .then(data => {
+                if (data.success) this.renderAttachments(container, data.attachments);
+            });
+    },
+
+    renderAttachments(container, attachments) {
+        container.innerHTML = '';
+        attachments.forEach(att => {
+            const chip = document.createElement('div');
+            chip.style.cssText = 'display:inline-flex;align-items:center;gap:4px;background:var(--bg-secondary);border:1px solid var(--border-color);border-radius:4px;padding:2px 6px;font-size:10px;max-width:150px;';
+            const icon = this.getFiletypeIcon(att.file_type);
+            chip.innerHTML = `
+                <i class="${icon}" style="color:var(--primary);"></i>
+                <a href="<?php echo BASE_URL; ?>${att.file_path}" target="_blank" class="text-truncate" style="max-width:80px;color:var(--text-primary);" title="${this.escapeHtml(att.file_name)}">${this.escapeHtml(att.file_name)}</a>
+                <button type="button" onclick="GroupPage.deleteAttachment(${att.id})" class="btn btn-sm p-0" title="Delete" style="font-size:10px;color:var(--danger);"><i class="fas fa-times"></i></button>
+            `;
+            container.appendChild(chip);
+        });
+    },
+
+    deleteAttachment(attId) {
+        StudifyConfirm.action('Delete File', 'Remove this attachment?', 'danger', () => {
+            const fd = new FormData();
+            fd.append('action', 'delete');
+            fd.append('attachment_id', attId);
+            fd.append('csrf_token', this.csrfToken);
+            fetch('<?php echo BASE_URL; ?>student/attachments.php', { method: 'POST', body: fd, credentials: 'same-origin' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.success) {
+                        StudifyToast.success('Deleted', 'Attachment removed');
+                        this.loadAllTaskAttachments();
+                    } else {
+                        StudifyToast.error('Error', data.message);
+                    }
+                });
+        });
+    },
+
+    loadAllTaskAttachments() {
+        document.querySelectorAll('.group-task-attachments').forEach(el => {
+            const taskId = el.id.replace('gatt-task-', '');
+            this.loadTaskAttachments(parseInt(taskId));
+        });
+    },
+
+    getFiletypeIcon(mime) {
+        if (mime.startsWith('image/')) return 'fas fa-image';
+        if (mime.includes('pdf')) return 'fas fa-file-pdf';
+        if (mime.includes('word') || mime.includes('document')) return 'fas fa-file-word';
+        if (mime.includes('excel') || mime.includes('spreadsheet')) return 'fas fa-file-excel';
+        if (mime.includes('powerpoint') || mime.includes('presentation')) return 'fas fa-file-powerpoint';
+        if (mime.includes('zip') || mime.includes('compressed')) return 'fas fa-file-archive';
+        if (mime.startsWith('text/')) return 'fas fa-file-alt';
+        return 'fas fa-file';
+    },
+
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
 };
 
@@ -881,6 +984,7 @@ const GroupChat = {
 
 document.addEventListener('DOMContentLoaded', () => {
     GroupChat.init();
+    GroupPage.loadAllTaskAttachments();
 
     // Restore active tab from URL hash (e.g. #tabTasks after task toggle)
     const hash = window.location.hash.replace('#', '');

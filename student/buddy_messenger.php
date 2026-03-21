@@ -117,59 +117,143 @@ if ($last_msg) {
 <!-- ===== CONVERSATION LIST VIEW (default) ===== -->
 <div id="convoListView">
 
-    <!-- Progress Comparison -->
+    <!-- Buddy Pair Streak Banner -->
+    <?php if ($my_enhanced && $my_enhanced['pair_streak'] > 0): ?>
+    <div class="buddy-streak-banner mb-3">
+        <div class="streak-fire">🔥</div>
+        <div class="streak-info">
+            <strong><?php echo $my_enhanced['pair_streak']; ?>-Day Buddy Streak!</strong>
+            <small>You and <?php echo $buddy_first; ?> have been active together</small>
+        </div>
+    </div>
+    <?php endif; ?>
+
+    <!-- Daily Check-in Card -->
     <div class="card mb-3">
         <div class="card-body">
+            <h6 class="fw-700 mb-3"><i class="fas fa-calendar-check text-success"></i> Daily Check-in</h6>
+            <div class="row g-3">
+                <div class="col-6">
+                    <div class="checkin-box <?php echo $my_checkin && $my_checkin['completed'] ? 'checked-in' : ''; ?>" id="myCheckinBox">
+                        <div class="checkin-user"><i class="fas fa-user"></i> You</div>
+                        <?php if ($my_checkin): ?>
+                            <div class="checkin-status <?php echo $my_checkin['completed'] ? 'done' : 'skipped'; ?>">
+                                <?php echo $my_checkin['completed'] ? '<i class="fas fa-check-circle"></i> Done' : '<i class="fas fa-times-circle"></i> Skipped'; ?>
+                            </div>
+                            <?php if ($my_checkin['note']): ?>
+                                <small class="checkin-note">"<?php echo htmlspecialchars($my_checkin['note']); ?>"</small>
+                            <?php endif; ?>
+                        <?php else: ?>
+                            <div class="checkin-pending">
+                                <button class="btn btn-success btn-sm" onclick="BuddyEnhanced.checkin(true)"><i class="fas fa-check"></i> Done</button>
+                                <button class="btn btn-outline-secondary btn-sm" onclick="BuddyEnhanced.checkin(false)"><i class="fas fa-times"></i> Skip</button>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <div class="checkin-box <?php echo $buddy_checkin && $buddy_checkin['completed'] ? 'checked-in' : ''; ?>">
+                        <div class="checkin-user"><i class="fas fa-user-friends"></i> <?php echo $buddy_first; ?></div>
+                        <?php if ($buddy_checkin): ?>
+                            <div class="checkin-status <?php echo $buddy_checkin['completed'] ? 'done' : 'skipped'; ?>">
+                                <?php echo $buddy_checkin['completed'] ? '<i class="fas fa-check-circle"></i> Done' : '<i class="fas fa-times-circle"></i> Skipped'; ?>
+                            </div>
+                            <?php if ($buddy_checkin['note']): ?>
+                                <small class="checkin-note">"<?php echo htmlspecialchars($buddy_checkin['note']); ?>"</small>
+                            <?php endif; ?>
+                        <?php else: ?>
+                            <div class="checkin-status pending"><i class="fas fa-hourglass-half"></i> Waiting</div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Weekly Goals Comparison -->
+    <div class="card mb-3">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h6 class="fw-700 mb-0"><i class="fas fa-bullseye text-primary"></i> Weekly Goals</h6>
+                <button class="btn btn-outline-primary btn-sm" onclick="BuddyEnhanced.showGoalModal()" style="font-size:11px;">
+                    <i class="fas fa-edit"></i> Set Goal
+                </button>
+            </div>
+            <div class="row g-3">
+                <div class="col-6">
+                    <div class="goal-box you-goal">
+                        <div class="goal-header"><i class="fas fa-user"></i> You</div>
+                        <div class="goal-progress">
+                            <div class="goal-numbers"><?php echo $my_weekly_goal['completed']; ?> / <?php echo $my_weekly_goal['target']; ?> tasks</div>
+                            <div class="goal-bar"><div class="goal-fill" style="width:<?php echo $my_weekly_goal['progress_pct']; ?>%"></div></div>
+                            <div class="goal-pct"><?php echo $my_weekly_goal['progress_pct']; ?>%</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="col-6">
+                    <div class="goal-box buddy-goal">
+                        <div class="goal-header"><i class="fas fa-user-friends"></i> <?php echo $buddy_first; ?></div>
+                        <div class="goal-progress">
+                            <div class="goal-numbers"><?php echo $buddy_weekly_goal['completed']; ?> / <?php echo $buddy_weekly_goal['target']; ?> tasks</div>
+                            <div class="goal-bar"><div class="goal-fill" style="width:<?php echo $buddy_weekly_goal['progress_pct']; ?>%"></div></div>
+                            <div class="goal-pct"><?php echo $buddy_weekly_goal['progress_pct']; ?>%</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Weekly Stats Comparison -->
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="fw-700 mb-3"><i class="fas fa-chart-line text-info"></i> This Week's Activity</h6>
             <div class="buddy-compare">
                 <div class="buddy-compare-col">
-                    <div class="buddy-compare-header you-header">
-                        <i class="fas fa-user"></i> You
-                    </div>
+                    <div class="buddy-compare-header you-header"><i class="fas fa-user"></i> You</div>
                     <div class="buddy-stat-grid">
                         <div class="buddy-stat-item">
-                            <div class="buddy-stat-value"><?php echo $my_progress['completion_pct']; ?>%</div>
-                            <div class="buddy-stat-label">Completed</div>
-                            <div class="buddy-progress-bar"><div class="buddy-progress-fill you-fill" style="width:<?php echo $my_progress['completion_pct']; ?>%"></div></div>
+                            <div class="buddy-stat-value"><?php echo $my_enhanced['week_tasks']; ?></div>
+                            <div class="buddy-stat-label">Tasks Done</div>
                         </div>
                         <div class="buddy-stat-item">
-                            <div class="buddy-stat-value"><?php echo $my_progress['streak']; ?> 🔥</div>
+                            <div class="buddy-stat-value"><?php echo $my_enhanced['streak']; ?> 🔥</div>
                             <div class="buddy-stat-label">Streak</div>
                         </div>
                         <div class="buddy-stat-item">
-                            <div class="buddy-stat-value"><?php echo round($my_progress['week_minutes'] / 60, 1); ?>h</div>
-                            <div class="buddy-stat-label">Study / Week</div>
-                        </div>
-                        <div class="buddy-stat-item">
-                            <div class="buddy-stat-value"><?php echo $my_progress['week_sessions']; ?></div>
-                            <div class="buddy-stat-label">Sessions</div>
+                            <div class="buddy-stat-value"><?php echo $my_enhanced['week_hours']; ?>h</div>
+                            <div class="buddy-stat-label">Study Time</div>
                         </div>
                     </div>
                 </div>
                 <div class="buddy-compare-vs"><span>VS</span></div>
                 <div class="buddy-compare-col">
-                    <div class="buddy-compare-header buddy-header">
-                        <i class="fas fa-user-friends"></i> <?php echo $buddy_first; ?>
-                    </div>
+                    <div class="buddy-compare-header buddy-header"><i class="fas fa-user-friends"></i> <?php echo $buddy_first; ?></div>
                     <div class="buddy-stat-grid">
                         <div class="buddy-stat-item">
-                            <div class="buddy-stat-value"><?php echo $buddy_progress['completion_pct']; ?>%</div>
-                            <div class="buddy-stat-label">Completed</div>
-                            <div class="buddy-progress-bar"><div class="buddy-progress-fill buddy-fill" style="width:<?php echo $buddy_progress['completion_pct']; ?>%"></div></div>
+                            <div class="buddy-stat-value"><?php echo $buddy_enhanced['week_tasks']; ?></div>
+                            <div class="buddy-stat-label">Tasks Done</div>
                         </div>
                         <div class="buddy-stat-item">
-                            <div class="buddy-stat-value"><?php echo $buddy_progress['streak']; ?> 🔥</div>
+                            <div class="buddy-stat-value"><?php echo $buddy_enhanced['streak']; ?> 🔥</div>
                             <div class="buddy-stat-label">Streak</div>
                         </div>
                         <div class="buddy-stat-item">
-                            <div class="buddy-stat-value"><?php echo round($buddy_progress['week_minutes'] / 60, 1); ?>h</div>
-                            <div class="buddy-stat-label">Study / Week</div>
-                        </div>
-                        <div class="buddy-stat-item">
-                            <div class="buddy-stat-value"><?php echo $buddy_progress['week_sessions']; ?></div>
-                            <div class="buddy-stat-label">Sessions</div>
+                            <div class="buddy-stat-value"><?php echo $buddy_enhanced['week_hours']; ?>h</div>
+                            <div class="buddy-stat-label">Study Time</div>
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Progress Comparison Chart -->
+    <div class="card mb-3">
+        <div class="card-body">
+            <h6 class="fw-700 mb-3"><i class="fas fa-chart-bar text-warning"></i> 4-Week Progress</h6>
+            <div style="height: 160px;">
+                <canvas id="buddyComparisonChart"></canvas>
             </div>
         </div>
     </div>
@@ -212,7 +296,7 @@ if ($last_msg) {
     </div>
 
     <!-- Quick Nudge -->
-    <div class="card">
+    <div class="card mb-3">
         <div class="card-body">
             <h6 class="fw-700 mb-3"><i class="fas fa-hand-peace text-primary"></i> Quick Nudge</h6>
             <p class="text-muted mb-3" style="font-size: 12px;">Send a quick nudge to motivate your buddy!</p>
@@ -222,6 +306,44 @@ if ($last_msg) {
                 <button class="nudge-preset-btn" onclick="BuddyMessenger.sendNudge('reminder')">⏰ Remind</button>
                 <button class="nudge-preset-btn" onclick="BuddyMessenger.sendNudge('celebrate')">🎉 Celebrate</button>
                 <button class="nudge-preset-btn" onclick="BuddyMessenger.sendNudge('challenge')">🔥 Challenge</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scheduled Nudges -->
+    <div class="card">
+        <div class="card-body">
+            <div class="d-flex justify-content-between align-items-center mb-3">
+                <h6 class="fw-700 mb-0"><i class="fas fa-clock text-secondary"></i> Scheduled Nudges</h6>
+                <button class="btn btn-outline-secondary btn-sm" onclick="BuddyEnhanced.showNudgeModal()" style="font-size:11px;">
+                    <i class="fas fa-plus"></i> Add
+                </button>
+            </div>
+            <div id="scheduledNudgesList">
+                <?php if (empty($scheduled_nudges)): ?>
+                    <p class="text-muted text-center mb-0" style="font-size:12px;">No scheduled nudges yet.</p>
+                <?php else: ?>
+                    <?php
+                    $days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                    foreach ($scheduled_nudges as $nudge): ?>
+                    <div class="scheduled-nudge-item" data-id="<?php echo $nudge['id']; ?>">
+                        <div class="nudge-time">
+                            <span class="nudge-day"><?php echo $days[$nudge['day_of_week']]; ?></span>
+                            <span class="nudge-hour"><?php echo date('g:i A', strtotime($nudge['nudge_time'])); ?></span>
+                        </div>
+                        <div class="nudge-message"><?php echo htmlspecialchars($nudge['message']); ?></div>
+                        <div class="nudge-actions">
+                            <button class="btn btn-sm <?php echo $nudge['is_active'] ? 'btn-success' : 'btn-outline-secondary'; ?>"
+                                    onclick="BuddyEnhanced.toggleNudge(<?php echo $nudge['id']; ?>)" title="Toggle">
+                                <i class="fas fa-<?php echo $nudge['is_active'] ? 'check' : 'pause'; ?>"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="BuddyEnhanced.deleteNudge(<?php echo $nudge['id']; ?>)" title="Delete">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <?php endforeach; ?>
+                <?php endif; ?>
             </div>
         </div>
     </div>
@@ -712,4 +834,306 @@ const BuddyMessenger = {
 
 document.addEventListener('DOMContentLoaded', () => BuddyMessenger.init());
 window.addEventListener('beforeunload', () => BuddyMessenger.destroy());
+</script>
+
+<!-- Weekly Goal Modal -->
+<div class="modal fade" id="weeklyGoalModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title fw-700"><i class="fas fa-bullseye text-primary"></i> Set Weekly Goal</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <label class="form-label fw-600" style="font-size:13px;">Tasks to complete this week</label>
+                <input type="number" id="weeklyGoalInput" class="form-control" min="1" max="50" value="<?php echo $my_weekly_goal['target'] ?? 5; ?>">
+                <small class="text-muted">Set a realistic goal based on your schedule.</small>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary btn-sm" onclick="BuddyEnhanced.saveGoal()"><i class="fas fa-save"></i> Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Scheduled Nudge Modal -->
+<div class="modal fade" id="scheduleNudgeModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title fw-700"><i class="fas fa-clock text-secondary"></i> Schedule a Nudge</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="mb-3">
+                    <label class="form-label fw-600" style="font-size:13px;">Day of Week</label>
+                    <select id="nudgeDaySelect" class="form-select">
+                        <option value="1">Monday</option>
+                        <option value="2">Tuesday</option>
+                        <option value="3">Wednesday</option>
+                        <option value="4">Thursday</option>
+                        <option value="5">Friday</option>
+                        <option value="6">Saturday</option>
+                        <option value="0">Sunday</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-600" style="font-size:13px;">Time</label>
+                    <input type="time" id="nudgeTimeInput" class="form-control" value="09:00">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label fw-600" style="font-size:13px;">Message</label>
+                    <textarea id="nudgeMessageInput" class="form-control" rows="2" maxlength="500" placeholder="e.g., Time to check your tasks!"></textarea>
+                </div>
+                <small class="text-muted">This nudge will be automatically sent to your buddy at the scheduled time.</small>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary btn-sm" onclick="BuddyEnhanced.saveNudge()"><i class="fas fa-save"></i> Save</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Check-in Note Modal -->
+<div class="modal fade" id="checkinNoteModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered modal-sm">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h6 class="modal-title fw-700"><i class="fas fa-calendar-check text-success"></i> Daily Check-in</h6>
+                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="checkinCompleted" value="1">
+                <label class="form-label fw-600" style="font-size:13px;">Add a note (optional)</label>
+                <input type="text" id="checkinNoteInput" class="form-control" maxlength="255" placeholder="e.g., Finished 3 chapters!">
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Skip Note</button>
+                <button type="button" class="btn btn-success btn-sm" onclick="BuddyEnhanced.submitCheckin()"><i class="fas fa-check"></i> Check In</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+/* Buddy Streak Banner */
+.buddy-streak-banner {
+    background: linear-gradient(135deg, #ff6b35 0%, #f7931e 100%);
+    color: white;
+    border-radius: var(--border-radius);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.buddy-streak-banner .streak-fire { font-size: 28px; }
+.buddy-streak-banner .streak-info strong { display: block; font-size: 14px; }
+.buddy-streak-banner .streak-info small { opacity: 0.9; font-size: 12px; }
+
+/* Check-in Box */
+.checkin-box {
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    padding: 12px;
+    text-align: center;
+    transition: all 0.2s;
+}
+.checkin-box.checked-in { border-color: var(--success); background: rgba(var(--success-rgb), 0.05); }
+.checkin-user { font-weight: 600; font-size: 12px; margin-bottom: 8px; color: var(--text-muted); }
+.checkin-status { font-size: 13px; font-weight: 600; }
+.checkin-status.done { color: var(--success); }
+.checkin-status.skipped { color: var(--text-muted); }
+.checkin-status.pending { color: var(--warning); }
+.checkin-note { display: block; margin-top: 6px; font-style: italic; color: var(--text-muted); }
+.checkin-pending { display: flex; gap: 6px; justify-content: center; }
+.checkin-pending .btn { font-size: 11px; padding: 4px 10px; }
+
+/* Goal Box */
+.goal-box {
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    padding: 12px;
+}
+.goal-header { font-weight: 600; font-size: 12px; margin-bottom: 8px; color: var(--text-muted); }
+.goal-numbers { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+.goal-bar { height: 8px; background: var(--bg-secondary); border-radius: 4px; overflow: hidden; }
+.goal-fill { height: 100%; background: var(--primary); border-radius: 4px; transition: width 0.3s; }
+.goal-pct { font-size: 11px; color: var(--text-muted); margin-top: 4px; text-align: right; }
+.you-goal .goal-fill { background: var(--primary); }
+.buddy-goal .goal-fill { background: var(--info); }
+
+/* Scheduled Nudge Item */
+.scheduled-nudge-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+.scheduled-nudge-item:last-child { border-bottom: none; }
+.nudge-time { text-align: center; min-width: 50px; }
+.nudge-day { display: block; font-weight: 600; font-size: 12px; color: var(--primary); }
+.nudge-hour { display: block; font-size: 11px; color: var(--text-muted); }
+.nudge-message { flex: 1; font-size: 13px; color: var(--text-primary); }
+.nudge-actions { display: flex; gap: 4px; }
+.nudge-actions .btn { padding: 2px 6px; font-size: 10px; }
+</style>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+const BuddyEnhanced = {
+    csrfToken: document.querySelector('meta[name="csrf-token"]')?.content || '',
+
+    init() {
+        this.initComparisonChart();
+    },
+
+    async ajax(action, data = {}) {
+        const body = new URLSearchParams({ action, csrf_token: this.csrfToken, ...data });
+        const r = await fetch(window.location.href, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest' },
+            body: body.toString()
+        });
+        return r.json();
+    },
+
+    // Weekly Goal
+    showGoalModal() {
+        new bootstrap.Modal(document.getElementById('weeklyGoalModal')).show();
+    },
+
+    async saveGoal() {
+        const target = parseInt(document.getElementById('weeklyGoalInput').value) || 5;
+        const data = await this.ajax('set_weekly_goal', { target_tasks: target });
+        if (data.success) {
+            showToast('Weekly goal updated!', 'success');
+            bootstrap.Modal.getInstance(document.getElementById('weeklyGoalModal')).hide();
+            setTimeout(() => location.reload(), 500);
+        } else {
+            showToast('Failed to save goal', 'error');
+        }
+    },
+
+    // Check-in
+    checkin(completed) {
+        document.getElementById('checkinCompleted').value = completed ? '1' : '0';
+        if (completed) {
+            new bootstrap.Modal(document.getElementById('checkinNoteModal')).show();
+        } else {
+            this.submitCheckin();
+        }
+    },
+
+    async submitCheckin() {
+        const completed = document.getElementById('checkinCompleted').value;
+        const note = document.getElementById('checkinNoteInput')?.value || '';
+        const data = await this.ajax('checkin', { completed, note });
+        if (data.success) {
+            showToast('Checked in!', 'success');
+            const modal = bootstrap.Modal.getInstance(document.getElementById('checkinNoteModal'));
+            if (modal) modal.hide();
+            setTimeout(() => location.reload(), 500);
+        } else {
+            showToast('Failed to check in', 'error');
+        }
+    },
+
+    // Scheduled Nudges
+    showNudgeModal() {
+        document.getElementById('nudgeMessageInput').value = '';
+        new bootstrap.Modal(document.getElementById('scheduleNudgeModal')).show();
+    },
+
+    async saveNudge() {
+        const day = document.getElementById('nudgeDaySelect').value;
+        const time = document.getElementById('nudgeTimeInput').value;
+        const message = document.getElementById('nudgeMessageInput').value.trim();
+        if (!message) { showToast('Please enter a message', 'warning'); return; }
+
+        const data = await this.ajax('add_scheduled_nudge', { day_of_week: day, nudge_time: time, message });
+        if (data.success) {
+            showToast('Nudge scheduled!', 'success');
+            bootstrap.Modal.getInstance(document.getElementById('scheduleNudgeModal')).hide();
+            setTimeout(() => location.reload(), 500);
+        } else {
+            showToast('Failed to schedule nudge', 'error');
+        }
+    },
+
+    async toggleNudge(id) {
+        const data = await this.ajax('toggle_scheduled_nudge', { nudge_id: id });
+        if (data.success) {
+            location.reload();
+        }
+    },
+
+    async deleteNudge(id) {
+        const confirmed = await StudifyConfirm.show('Delete Nudge', 'Remove this scheduled nudge?', 'danger', 'Delete');
+        if (!confirmed) return;
+        const data = await this.ajax('delete_scheduled_nudge', { nudge_id: id });
+        if (data.success) {
+            const el = document.querySelector(`.scheduled-nudge-item[data-id="${id}"]`);
+            if (el) el.remove();
+            showToast('Nudge deleted', 'success');
+        }
+    },
+
+    // Comparison Chart
+    initComparisonChart() {
+        const ctx = document.getElementById('buddyComparisonChart');
+        if (!ctx) return;
+
+        const chartData = <?php echo json_encode($comparison_data ?? ['labels' => [], 'user' => [], 'buddy' => []]); ?>;
+
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: chartData.labels,
+                datasets: [
+                    {
+                        label: 'You',
+                        data: chartData.user,
+                        backgroundColor: 'rgba(99, 102, 241, 0.7)',
+                        borderColor: 'rgba(99, 102, 241, 1)',
+                        borderWidth: 1,
+                        barPercentage: 0.7,
+                        categoryPercentage: 0.8
+                    },
+                    {
+                        label: '<?php echo $buddy_first; ?>',
+                        data: chartData.buddy,
+                        backgroundColor: 'rgba(14, 165, 233, 0.7)',
+                        borderColor: 'rgba(14, 165, 233, 1)',
+                        borderWidth: 1,
+                        barPercentage: 0.7,
+                        categoryPercentage: 0.8
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 }, padding: 8 } }
+                },
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: { stepSize: 1, font: { size: 10 } },
+                        grid: { display: false }
+                    },
+                    x: {
+                        ticks: { font: { size: 10 } },
+                        grid: { display: false }
+                    }
+                }
+            }
+        });
+    }
+};
+
+document.addEventListener('DOMContentLoaded', () => BuddyEnhanced.init());
 </script>

@@ -34,6 +34,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WI
         echo json_encode(['success' => false, 'message' => 'Invalid security token']);
         exit();
     }
+    // Release session lock early — allows concurrent requests (e.g. chat polling + page loads)
+    session_write_close();
     $action = $_POST['action'] ?? '';
 
     // Update user activity on every AJAX request
@@ -149,6 +151,67 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_SERVER['HTTP_X_REQUESTED_WI
         $message_id = intval($_POST['message_id'] ?? 0);
         $deleted = deleteChatMessage($message_id, $user_id, $conn);
         echo json_encode(['success' => $deleted, 'message' => $deleted ? 'Message deleted' : 'Cannot delete this message']);
+        exit();
+    }
+
+    // ── Set weekly goal ──
+    if ($action === 'set_weekly_goal') {
+        $target = intval($_POST['target_tasks'] ?? 5);
+        $ok = setBuddyWeeklyGoal($user_id, $target, $conn);
+        echo json_encode(['success' => $ok, 'target' => $target]);
+        exit();
+    }
+
+    // ── Daily check-in ──
+    if ($action === 'checkin') {
+        $completed = ($_POST['completed'] ?? '0') === '1';
+        $note = trim($_POST['note'] ?? '');
+        $ok = setTodayCheckin($user_id, $completed, $note, $conn);
+        // Update pair streak after check-in
+        $buddy = getAcceptedBuddy($user_id, $conn);
+        $pair_streak = 0;
+        if ($buddy) {
+            $pair_streak = updateBuddyPairStreak($user_id, $buddy['buddy_id'], $conn);
+        }
+        echo json_encode(['success' => $ok, 'pair_streak' => $pair_streak]);
+        exit();
+    }
+
+    // ── Get comparison chart data ──
+    if ($action === 'get_comparison_chart') {
+        $buddy = getAcceptedBuddy($user_id, $conn);
+        if (!$buddy) {
+            echo json_encode(['success' => false, 'message' => 'No buddy']);
+            exit();
+        }
+        $data = getWeeklyComparisonData($user_id, $buddy['buddy_id'], $conn);
+        echo json_encode(['success' => true, 'data' => $data]);
+        exit();
+    }
+
+    // ── Add scheduled nudge ──
+    if ($action === 'add_scheduled_nudge') {
+        $day = intval($_POST['day_of_week'] ?? 0);
+        $time = $_POST['nudge_time'] ?? '09:00';
+        $message = trim($_POST['message'] ?? '');
+        $id = addScheduledNudge($user_id, $day, $time, $message, $conn);
+        echo json_encode(['success' => $id !== false, 'id' => $id]);
+        exit();
+    }
+
+    // ── Delete scheduled nudge ──
+    if ($action === 'delete_scheduled_nudge') {
+        $nudge_id = intval($_POST['nudge_id'] ?? 0);
+        $ok = deleteScheduledNudge($nudge_id, $user_id, $conn);
+        echo json_encode(['success' => $ok]);
+        exit();
+    }
+
+    // ── Toggle scheduled nudge ──
+    if ($action === 'toggle_scheduled_nudge') {
+        $nudge_id = intval($_POST['nudge_id'] ?? 0);
+        $ok = toggleScheduledNudge($nudge_id, $user_id, $conn);
+        echo json_encode(['success' => $ok]);
         exit();
     }
 
@@ -334,14 +397,33 @@ $stmt->bind_param("i", $user_id);
 $stmt->execute();
 $stmt->close();
 $my_progress = getBuddyProgress($user_id, $conn);
+$my_enhanced = null;
 $blocked_users = getBlockedUsers($user_id, $conn);
 $last_buddy = !$buddy_pair ? getLastBuddyPair($user_id, $conn) : null;
 
 // If has buddy, get their progress and update online status
 $buddy_progress = null;
+$buddy_enhanced = null;
+$my_weekly_goal = null;
+$buddy_weekly_goal = null;
+$my_checkin = null;
+$buddy_checkin = null;
+$scheduled_nudges = [];
+$comparison_data = null;
+
 if ($buddy_pair) {
     $buddy_progress = getBuddyProgress($buddy_pair['buddy_id'], $conn);
+    $my_enhanced = getEnhancedBuddyProgress($user_id, $buddy_pair['buddy_id'], $conn);
+    $buddy_enhanced = getEnhancedBuddyProgress($buddy_pair['buddy_id'], $user_id, $conn);
+    $my_weekly_goal = getWeeklyGoalProgress($user_id, $conn);
+    $buddy_weekly_goal = getWeeklyGoalProgress($buddy_pair['buddy_id'], $conn);
+    $my_checkin = getTodayCheckin($user_id, $conn);
+    $buddy_checkin = getTodayCheckin($buddy_pair['buddy_id'], $conn);
+    $scheduled_nudges = getScheduledNudges($user_id, $conn);
+    $comparison_data = getWeeklyComparisonData($user_id, $buddy_pair['buddy_id'], $conn);
     updateUserActivity($user_id, $conn);
+    // Update pair streak
+    updateBuddyPairStreak($user_id, $buddy_pair['buddy_id'], $conn);
 }
 ?>
 <?php include '../includes/header.php'; ?>

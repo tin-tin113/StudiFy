@@ -34,32 +34,33 @@ $priority_res  = $priority_q->get_result();
 $priority_data = ['High' => 0, 'Medium' => 0, 'Low' => 0];
 while ($row = $priority_res->fetch_assoc()) $priority_data[$row['priority']] = $row['count'];
 
-// Weekly stats
-$week_study_q = $conn->prepare("SELECT COALESCE(SUM(duration),0) as m FROM study_sessions WHERE user_id=? AND DATE(created_at)>=DATE_SUB(CURDATE(),INTERVAL 7 DAY)");
-$week_study_q->bind_param("i", $user_id); $week_study_q->execute();
-$week_study = $week_study_q->get_result()->fetch_assoc()['m'];
-
-$week_done_q = $conn->prepare("SELECT COUNT(*) c FROM tasks WHERE user_id=? AND status='Completed' AND updated_at>=DATE_SUB(CURDATE(),INTERVAL 7 DAY)");
-$week_done_q->bind_param("i", $user_id); $week_done_q->execute();
-$week_completed = $week_done_q->get_result()->fetch_assoc()['c'];
-
-$week_added_q = $conn->prepare("SELECT COUNT(*) c FROM tasks WHERE user_id=? AND created_at>=DATE_SUB(CURDATE(),INTERVAL 7 DAY)");
-$week_added_q->bind_param("i", $user_id); $week_added_q->execute();
-$week_added = $week_added_q->get_result()->fetch_assoc()['c'];
-
-$week_sess_q = $conn->prepare("SELECT COUNT(*) c FROM study_sessions WHERE user_id=? AND session_type='Focus' AND DATE(created_at)>=DATE_SUB(CURDATE(),INTERVAL 7 DAY)");
-$week_sess_q->bind_param("i", $user_id); $week_sess_q->execute();
-$week_sessions = $week_sess_q->get_result()->fetch_assoc()['c'];
+// Weekly stats — combined into a single query (was 4 separate queries)
+$week_q = $conn->prepare("SELECT
+    COALESCE((SELECT SUM(duration) FROM study_sessions WHERE user_id=? AND created_at>=DATE_SUB(CURDATE(),INTERVAL 7 DAY)),0) as study_mins,
+    COALESCE((SELECT COUNT(*) FROM tasks WHERE user_id=? AND status='Completed' AND updated_at>=DATE_SUB(CURDATE(),INTERVAL 7 DAY)),0) as done,
+    COALESCE((SELECT COUNT(*) FROM tasks WHERE user_id=? AND created_at>=DATE_SUB(CURDATE(),INTERVAL 7 DAY)),0) as added,
+    COALESCE((SELECT COUNT(*) FROM study_sessions WHERE user_id=? AND session_type='Focus' AND created_at>=DATE_SUB(CURDATE(),INTERVAL 7 DAY)),0) as sessions");
+$week_q->bind_param("iiii", $user_id, $user_id, $user_id, $user_id);
+$week_q->execute();
+$week_row = $week_q->get_result()->fetch_assoc();
+$week_study     = $week_row['study_mins'];
+$week_completed = $week_row['done'];
+$week_added     = $week_row['added'];
+$week_sessions  = $week_row['sessions'];
 
 // Announcements
 $ann_q = $conn->prepare("SELECT a.* FROM announcements a WHERE (a.expires_at IS NULL OR a.expires_at>=CURDATE()) AND a.id NOT IN (SELECT announcement_id FROM announcement_reads WHERE user_id=?) ORDER BY a.created_at DESC");
 $ann_q->bind_param("i", $user_id); $ann_q->execute();
 $unread_announcements = $ann_q->get_result()->fetch_all(MYSQLI_ASSOC);
 
-// Gamification
+// Gamification — pass $streak to avoid recomputing it inside checkAndAwardAchievements
 $streak       = getStudyStreak($user_id, $conn);
-$gamification = checkAndAwardAchievements($user_id, $conn);
+$gamification = checkAndAwardAchievements($user_id, $conn, $streak);
 $widgets      = getDashboardWidgets($user_id, $conn);
+
+// Run notification checker on dashboard only (not on every page via header)
+require_once '../includes/notification_checker.php';
+runNotificationChecker($user_id, $conn);
 
 $hour = date('H');
 $greeting = $hour < 12 ? 'Good Morning' : ($hour < 17 ? 'Good Afternoon' : 'Good Evening');

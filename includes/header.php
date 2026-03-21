@@ -42,10 +42,8 @@ if (isset($_SESSION['user_id']) && function_exists('getPendingTasksCount') && $u
     if (function_exists('getUnreadGroupMessageCount')) {
         $unread_group_count = getUnreadGroupMessageCount($_SESSION['user_id'], $conn);
     }
-    // Run notification checker & get notification data
+    // Run notification checker only on dashboard (not every page load)
     if (function_exists('getUnreadNotificationCount')) {
-        require_once __DIR__ . '/notification_checker.php';
-        runNotificationChecker($_SESSION['user_id'], $conn);
         $unread_notif_count = getUnreadNotificationCount($_SESSION['user_id'], $conn);
         $recent_notifications = getRecentNotifications($_SESSION['user_id'], $conn, 8);
     }
