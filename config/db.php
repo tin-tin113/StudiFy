@@ -30,23 +30,41 @@ if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
 
+// Optional file-based overrides for hosts that do not expose env vars (e.g., shared hosting).
+$local_config = [];
+$local_config_file = __DIR__ . '/db.local.php';
+if (is_file($local_config_file)) {
+    $loaded = require $local_config_file;
+    if (is_array($loaded)) {
+        $local_config = $loaded;
+    }
+}
+
 // App environment
-if (!defined('APP_ENV')) define('APP_ENV', getenv('APP_ENV') ?: 'development');
-if (!defined('APP_URL')) define('APP_URL', rtrim((string)(getenv('APP_URL') ?: ''), '/'));
+if (!defined('APP_ENV')) define('APP_ENV', getenv('APP_ENV') ?: ($local_config['APP_ENV'] ?? 'development'));
+if (!defined('APP_URL')) define('APP_URL', rtrim((string)(getenv('APP_URL') ?: ($local_config['APP_URL'] ?? '')), '/'));
 
 if (APP_ENV === 'production') {
     ini_set('display_errors', '0');
     ini_set('log_errors', '1');
 }
 
-// Database credentials (use environment variables in production)
-$db_host = getenv('DB_HOST') ?: 'localhost';
-$db_user = getenv('DB_USER') ?: 'root';
-$db_password = getenv('DB_PASS') ?: '';
-$db_name = getenv('DB_NAME') ?: 'studify';
+// Database credentials (prefer env vars, fallback to local config file)
+$running_in_docker = is_file('/.dockerenv');
+$default_db_host = $running_in_docker ? 'host.docker.internal' : 'localhost';
+$db_host = getenv('DB_HOST') ?: ($local_config['DB_HOST'] ?? $default_db_host);
+$db_user = getenv('DB_USER') ?: ($local_config['DB_USER'] ?? 'root');
+$db_password = getenv('DB_PASS') ?: ($local_config['DB_PASS'] ?? '');
+$db_name = getenv('DB_NAME') ?: ($local_config['DB_NAME'] ?? 'studify');
+
+// If localhost is forced in Docker, mysqli may attempt a Unix socket path that does not exist.
+if ($running_in_docker && strtolower((string)$db_host) === 'localhost') {
+    $db_host = 'host.docker.internal';
+}
 
 // Create connection
-$conn = new mysqli($db_host, $db_user, $db_password, $db_name);
+mysqli_report(MYSQLI_REPORT_OFF);
+$conn = @new mysqli($db_host, $db_user, $db_password, $db_name);
 
 // Check connection
 if ($conn->connect_error) {

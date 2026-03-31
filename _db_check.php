@@ -1,4 +1,9 @@
 <?php
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit('Forbidden: CLI only');
+}
+
 require_once 'config/db.php';
 
 echo "=== Attachments Table Structure ===\n";

@@ -7,6 +7,11 @@
  * - Study Buddy pairing request/accept
  */
 
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit('Forbidden: CLI only');
+}
+
 $baseUrl = getenv('STUDIFY_BASE_URL') ?: 'http://localhost/Studify/';
 $studentEmail = 'student@studify.com';
 $studentPass = 'password123';

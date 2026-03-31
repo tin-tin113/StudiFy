@@ -5,6 +5,11 @@
  * buddy pair uniqueness, and attachment integrity constraints.
  */
 
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit('Forbidden: CLI only');
+}
+
 require_once 'config/db.php';
 
 echo "Running core fixes migration...\n\n";

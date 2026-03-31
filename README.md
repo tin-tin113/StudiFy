@@ -157,9 +157,37 @@ Studify/
 
 1. Create a MySQL database named `studify`.
 2. Import `database.sql`.
-3. Update credentials in `config/db.php` or environment variables.
+3. Set credentials using either environment variables or `config/db.local.php` (copy from `config/db.local.php.example`).
 4. Start Apache and MySQL.
 5. Open `http://localhost/Studify/`.
+
+## Deploying to InfinityFree
+
+InfinityFree shared hosting usually does not expose custom environment variables,
+so use the file-based config option.
+
+1. Create MySQL in InfinityFree control panel and copy:
+  - DB Host (example: `sqlXXX.byetcluster.com`)
+  - DB Name
+  - DB Username
+  - DB Password
+2. Import `database.sql` into that database from phpMyAdmin.
+3. Create `config/db.local.php` from `config/db.local.php.example` and fill your real values.
+4. Upload project files into `htdocs` (or your addon domain document root).
+5. Ensure these directories exist and are writable:
+  - `uploads/attachments/`
+  - `uploads/avatars/`
+  - `uploads/photos/`
+6. Set in `config/db.local.php`:
+  - `APP_ENV=production`
+  - `APP_URL=https://your-subdomain.infinityfreeapp.com`
+7. Verify health endpoint:
+  - `https://your-subdomain.infinityfreeapp.com/health.php`
+  - or `https://your-subdomain.infinityfreeapp.com/health`
+
+Security note:
+- `setup.php` is blocked in production mode.
+- Migration/debug helpers are CLI-only.
 
 ## Deploying to studify.wasmer.app
 

@@ -3,6 +3,12 @@
 // Run this file once to create the database and tables
 // WARNING: Delete this file after installation for security!
 
+$app_env = getenv('APP_ENV') ?: 'development';
+if (strtolower($app_env) === 'production') {
+    http_response_code(403);
+    die('Forbidden — setup is disabled in production.');
+}
+
 // Require explicit confirmation to prevent accidental/unauthorized runs
 if (!isset($_GET['confirm']) || $_GET['confirm'] !== 'yes') {
     die("<!DOCTYPE html><html><head><title>Studify Setup</title></head><body style='font-family:sans-serif;padding:40px;max-width:600px;margin:auto;'>
@@ -22,15 +28,22 @@ if (!$is_cli && !$is_local) {
     die('Forbidden — setup can only be run from localhost or CLI.');
 }
 
-$db_host = getenv('DB_HOST') ?: 'localhost';
+$running_in_docker = is_file('/.dockerenv');
+$default_db_host = $running_in_docker ? 'host.docker.internal' : 'localhost';
+$db_host = getenv('DB_HOST') ?: $default_db_host;
 $db_user = getenv('DB_USER') ?: 'root';
 $db_password = getenv('DB_PASS') ?: '';
 $db_name = getenv('DB_NAME') ?: 'studify';
 
+if ($running_in_docker && strtolower((string)$db_host) === 'localhost') {
+    $db_host = 'host.docker.internal';
+}
+
 echo "<h1>Studify - Database Setup</h1>";
 
 // Connect to MySQL (without database)
-$conn = new mysqli($db_host, $db_user, $db_password);
+mysqli_report(MYSQLI_REPORT_OFF);
+$conn = @new mysqli($db_host, $db_user, $db_password);
 
 if ($conn->connect_error) {
     die("<p style='color:red;'>Connection Failed: " . $conn->connect_error . "</p>");

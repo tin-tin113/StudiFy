@@ -9,6 +9,8 @@ Desktop.ini
 .env
 .env.*
 !.env.example
+config/db.local.php
+!config/db.local.php.example
 
 # PHP and Composer artifacts
 vendor/

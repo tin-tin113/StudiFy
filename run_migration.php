@@ -4,6 +4,11 @@
  * Execute this file to add the task_templates table
  */
 
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit('Forbidden: CLI only');
+}
+
 require_once 'config/db.php';
 
 echo "Running Task Templates Migration...\n\n";
