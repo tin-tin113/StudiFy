@@ -6,6 +6,21 @@
 define('BASE_URL', './');
 require_once 'config/db.php';
 
+// Fallback health endpoint for hosts using front-controller routing.
+$request_path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
+if ($request_path === '/health' || $request_path === '/health.php') {
+    header('Content-Type: application/json');
+    $ok = ($conn instanceof mysqli && $conn->ping());
+    http_response_code($ok ? 200 : 503);
+    echo json_encode([
+        'ok' => $ok,
+        'service' => 'studify',
+        'timestamp' => gmdate('c'),
+        'db' => $ok ? 'ok' : 'down',
+    ]);
+    exit();
+}
+
 if (isset($_SESSION['user_id'])) {
     if ($_SESSION['role'] === 'admin') {
         header("Location: admin/admin_dashboard.php");

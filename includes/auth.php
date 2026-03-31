@@ -4,13 +4,28 @@
 
 // Start session if not already started (with secure settings)
 if (session_status() === PHP_SESSION_NONE) {
+    $httpsHeader = strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''));
+    $forwardedSsl = strtolower((string)($_SERVER['HTTP_X_FORWARDED_SSL'] ?? ''));
+    $is_https = (
+        (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ||
+        (($_SERVER['SERVER_PORT'] ?? null) == 443) ||
+        $httpsHeader === 'https' ||
+        $forwardedSsl === 'on'
+    );
+
     ini_set('session.use_strict_mode', 1);
     ini_set('session.cookie_httponly', 1);
     ini_set('session.cookie_samesite', 'Lax');
-    $is_https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (($_SERVER['SERVER_PORT'] ?? null) == 443);
-    if ($is_https) {
-        ini_set('session.cookie_secure', 1);
-    }
+    ini_set('session.cookie_secure', $is_https ? '1' : '0');
+
+    session_set_cookie_params([
+        'lifetime' => 0,
+        'path' => '/',
+        'domain' => '',
+        'secure' => $is_https,
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
     session_start();
 }
 

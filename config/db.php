@@ -4,15 +4,39 @@
 
 // Start session if not already started
 if (session_status() === PHP_SESSION_NONE) {
-    // Secure session settings
+    // Secure session settings, including reverse-proxy HTTPS detection.
+    $httpsHeader = strtolower((string)($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? ''));
+    $forwardedSsl = strtolower((string)($_SERVER['HTTP_X_FORWARDED_SSL'] ?? ''));
+    $is_https = (
+        (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ||
+        (($_SERVER['SERVER_PORT'] ?? null) == 443) ||
+        $httpsHeader === 'https' ||
+        $forwardedSsl === 'on'
+    );
+
     ini_set('session.use_strict_mode', 1);
     ini_set('session.cookie_httponly', 1);
     ini_set('session.cookie_samesite', 'Lax');
-    $is_https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (($_SERVER['SERVER_PORT'] ?? null) == 443);
-    if ($is_https) {
-        ini_set('session.cookie_secure', 1);
-    }
+    ini_set('session.cookie_secure', $is_https ? '1' : '0');
+
+    session_set_cookie_params([
+        'lifetime' => 0,
+        'path' => '/',
+        'domain' => '',
+        'secure' => $is_https,
+        'httponly' => true,
+        'samesite' => 'Lax',
+    ]);
     session_start();
+}
+
+// App environment
+if (!defined('APP_ENV')) define('APP_ENV', getenv('APP_ENV') ?: 'development');
+if (!defined('APP_URL')) define('APP_URL', rtrim((string)(getenv('APP_URL') ?: ''), '/'));
+
+if (APP_ENV === 'production') {
+    ini_set('display_errors', '0');
+    ini_set('log_errors', '1');
 }
 
 // Database credentials (use environment variables in production)
@@ -60,6 +84,15 @@ function sanitize($data) {
 // Output escaping shorthand — always use when echoing user data into HTML
 function e($str) {
     return htmlspecialchars($str ?? '', ENT_QUOTES, 'UTF-8');
+}
+
+// Build absolute URLs when APP_URL is configured, otherwise keep relative paths.
+function appUrl($path = '') {
+    $normalized = ltrim((string)$path, '/');
+    if (APP_URL === '') {
+        return $normalized;
+    }
+    return APP_URL . ($normalized !== '' ? '/' . $normalized : '');
 }
 
 // ─── CSRF Protection ───

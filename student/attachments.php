@@ -95,7 +95,14 @@ if ($action === 'upload') {
     $ext      = pathinfo($file['name'], PATHINFO_EXTENSION);
     $safe_ext = preg_replace('/[^a-zA-Z0-9]/', '', $ext);
     $stored   = 'att_' . $user_id . '_' . time() . '_' . bin2hex(random_bytes(4)) . '.' . $safe_ext;
-    $dest     = __DIR__ . '/../uploads/attachments/' . $stored;
+    $attachments_dir = rtrim(UPLOAD_DIR, '/\\') . '/attachments/';
+    if (!is_dir($attachments_dir) && !mkdir($attachments_dir, 0755, true)) {
+        echo json_encode(['success' => false, 'message' => 'Upload storage unavailable']); exit();
+    }
+    if (!is_writable($attachments_dir)) {
+        echo json_encode(['success' => false, 'message' => 'Upload storage is not writable']); exit();
+    }
+    $dest     = $attachments_dir . $stored;
 
     if (!move_uploaded_file($file['tmp_name'], $dest)) {
         echo json_encode(['success' => false, 'message' => 'Failed to save file']); exit();

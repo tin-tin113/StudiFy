@@ -161,6 +161,31 @@ Studify/
 4. Start Apache and MySQL.
 5. Open `http://localhost/Studify/`.
 
+## Deploying to studify.wasmer.app
+
+Use this checklist to prepare production deployment:
+
+1. Configure environment variables (copy from `.env.example`):
+  - `APP_ENV=production`
+  - `APP_URL=https://studify.wasmer.app`
+  - `APP_SHOW_RESET_LINK=0`
+  - `DB_HOST`, `DB_USER`, `DB_PASS`, `DB_NAME`
+2. Ensure writable directories exist in runtime:
+  - `uploads/attachments/`
+  - `uploads/avatars/`
+  - `uploads/photos/`
+3. Import and migrate database before go-live:
+  - `database.sql`
+  - follow `MIGRATION_INSTRUCTIONS.md` for existing databases
+4. Verify health endpoint after deploy:
+  - `https://studify.wasmer.app/health.php` should return HTTP 200 and JSON with `"ok": true`.
+5. Disable setup route in production:
+  - do not expose `setup.php` publicly once schema is provisioned.
+
+Notes:
+- `manifest.json` is configured with a relative start URL for root-domain deployment.
+- Password reset demo links are hidden by default in production (`APP_SHOW_RESET_LINK=0`).
+
 ## Upgrading an Existing Database
 
 Use `MIGRATION_INSTRUCTIONS.md` for exact upgrade flow. Summary:

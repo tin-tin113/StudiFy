@@ -16,6 +16,10 @@ $page_title = 'Forgot Password';
 $error = '';
 $success = '';
 $reset_link = '';
+$show_demo_reset_link = filter_var(
+    getenv('APP_SHOW_RESET_LINK') ?: (APP_ENV !== 'production' ? '1' : '0'),
+    FILTER_VALIDATE_BOOLEAN
+);
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     requireCSRF();
@@ -47,8 +51,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->bind_param("sss", $email, $token_hash, $expires);
             $stmt->execute();
             
-            // In production, send email. For demo, show link directly.
-            $reset_link = BASE_URL . "auth/reset_password.php?token=" . $token;
+            // In production, send email. For demo/local use, optionally show link.
+            $generated_link = appUrl('auth/reset_password.php?token=' . $token);
+            if ($show_demo_reset_link) {
+                $reset_link = $generated_link;
+            }
         }
         // Always show generic message to prevent email enumeration
         $success = 'If an account with that email exists, a reset link has been generated.';
