@@ -34,6 +34,8 @@ $db_host = getenv('DB_HOST') ?: $default_db_host;
 $db_user = getenv('DB_USER') ?: 'root';
 $db_password = getenv('DB_PASS') ?: '';
 $db_name = getenv('DB_NAME') ?: 'studify';
+$db_port = (int)(getenv('DB_PORT') ?: 3306);
+$db_ssl_ca = getenv('DB_SSL_CA') ?: '';
 
 if ($running_in_docker && strtolower((string)$db_host) === 'localhost') {
     $db_host = 'host.docker.internal';
@@ -43,7 +45,11 @@ echo "<h1>Studify - Database Setup</h1>";
 
 // Connect to MySQL (without database)
 mysqli_report(MYSQLI_REPORT_OFF);
-$conn = @new mysqli($db_host, $db_user, $db_password);
+$conn = @new mysqli($db_host, $db_user, $db_password, '', $db_port);
+if (!$conn->connect_error && $db_ssl_ca !== '' && is_file($db_ssl_ca)) {
+    $conn->ssl_set(null, null, $db_ssl_ca, null, null);
+    $conn->real_connect($db_host, $db_user, $db_password, '', $db_port);
+}
 
 if ($conn->connect_error) {
     die("<p style='color:red;'>Connection Failed: " . $conn->connect_error . "</p>");

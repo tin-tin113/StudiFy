@@ -56,6 +56,21 @@ $db_host = getenv('DB_HOST') ?: ($local_config['DB_HOST'] ?? $default_db_host);
 $db_user = getenv('DB_USER') ?: ($local_config['DB_USER'] ?? 'root');
 $db_password = getenv('DB_PASS') ?: ($local_config['DB_PASS'] ?? '');
 $db_name = getenv('DB_NAME') ?: ($local_config['DB_NAME'] ?? 'studify');
+$db_port = (int)(getenv('DB_PORT') ?: ($local_config['DB_PORT'] ?? 3306));
+$db_ssl_ca = getenv('DB_SSL_CA') ?: ($local_config['DB_SSL_CA'] ?? '');
+$db_ssl_ca_b64 = getenv('DB_SSL_CA_B64') ?: ($local_config['DB_SSL_CA_B64'] ?? '');
+$db_ssl_ca_path = '';
+if ($db_ssl_ca !== '' && is_file($db_ssl_ca)) {
+    $db_ssl_ca_path = $db_ssl_ca;
+} elseif ($db_ssl_ca_b64 !== '') {
+    $decoded = base64_decode($db_ssl_ca_b64, true);
+    if ($decoded !== false) {
+        $tmp_path = sys_get_temp_dir() . '/db-ca.pem';
+        if (@file_put_contents($tmp_path, $decoded) !== false) {
+            $db_ssl_ca_path = $tmp_path;
+        }
+    }
+}
 
 // If localhost is forced in Docker, mysqli may attempt a Unix socket path that does not exist.
 if ($running_in_docker && strtolower((string)$db_host) === 'localhost') {
@@ -64,7 +79,12 @@ if ($running_in_docker && strtolower((string)$db_host) === 'localhost') {
 
 // Create connection
 mysqli_report(MYSQLI_REPORT_OFF);
-$conn = @new mysqli($db_host, $db_user, $db_password, $db_name);
+$conn = new mysqli();
+if ($db_ssl_ca_path !== '') {
+    // Optional TLS for providers like TiDB Cloud.
+    $conn->ssl_set(null, null, $db_ssl_ca_path, null, null);
+}
+$conn->real_connect($db_host, $db_user, $db_password, $db_name, $db_port);
 
 // Check connection
 if ($conn->connect_error) {
