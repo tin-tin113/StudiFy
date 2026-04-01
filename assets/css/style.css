@@ -5324,3 +5324,526 @@ img.topbar-user-avatar {
     color: var(--primary);
     margin-bottom: 2px;
 }
+
+/* ============================================
+   GLOBAL MOBILE COMPACT OVERRIDES
+   ============================================ */
+@media (max-width: 767.98px) {
+    :root {
+        --topbar-height: 56px;
+    }
+
+    body {
+        font-size: 13px;
+        line-height: 1.5;
+    }
+
+    .sidebar {
+        width: min(84vw, 300px);
+    }
+
+    .topbar {
+        height: var(--topbar-height);
+        padding: 0 10px;
+    }
+
+    .topbar-left {
+        gap: 8px;
+        min-width: 0;
+    }
+
+    .topbar-title {
+        font-size: 14px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 45vw;
+    }
+
+    .topbar-right {
+        gap: 6px;
+    }
+
+    .topbar-btn,
+    .topbar-toggle {
+        width: 34px;
+        height: 34px;
+        font-size: 13px;
+    }
+
+    .main-content {
+        padding-top: var(--topbar-height);
+    }
+
+    .content-wrapper {
+        padding: 14px 10px;
+    }
+
+    .page-header {
+        margin-bottom: 14px;
+        gap: 8px;
+    }
+
+    .page-header h2 {
+        font-size: 17px;
+    }
+
+    .card,
+    .modal-content {
+        border-radius: 10px;
+    }
+
+    .card-header {
+        padding: 10px 12px;
+        font-size: 13px;
+    }
+
+    .card-body,
+    .card-footer {
+        padding: 12px;
+    }
+
+    .stat-card {
+        padding: 12px;
+    }
+
+    .btn {
+        min-height: 36px;
+        font-size: 13px;
+        padding: 0.35rem 0.65rem;
+    }
+
+    .btn-sm {
+        min-height: 32px;
+        padding: 0.25rem 0.5rem;
+    }
+
+    .form-control,
+    .form-select,
+    .input-group-text {
+        min-height: 38px;
+        font-size: 13px;
+        padding: 0.35rem 0.6rem;
+    }
+
+    .table {
+        font-size: 12.5px;
+    }
+
+    .table th,
+    .table td {
+        padding: 0.45rem 0.5rem;
+        white-space: nowrap;
+    }
+
+    .table-responsive,
+    .table-wrap {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+
+    .dropdown-menu {
+        min-width: 220px;
+        max-width: calc(100vw - 24px);
+    }
+
+    .notification-dropdown {
+        min-width: min(92vw, 340px) !important;
+        max-width: min(92vw, 340px) !important;
+    }
+
+    .modal-dialog {
+        margin: 8px;
+    }
+
+    .modal-body,
+    .modal-header,
+    .modal-footer {
+        padding: 12px;
+    }
+
+    .empty-state {
+        padding: 28px 12px;
+    }
+
+    .badge {
+        font-size: 10px;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .topbar-title {
+        max-width: 38vw;
+    }
+
+    .sidebar-nav {
+        padding: 6px 8px;
+    }
+
+    .nav-link-sidebar {
+        padding: 8px 10px;
+        font-size: 13px;
+        gap: 9px;
+    }
+
+    .nav-link-sidebar i {
+        width: 18px;
+        font-size: 14px;
+    }
+
+    .content-wrapper {
+        padding: 12px 8px;
+    }
+
+    .card-header,
+    .card-body,
+    .card-footer {
+        padding-left: 10px;
+        padding-right: 10px;
+    }
+
+    .btn {
+        width: 100%;
+    }
+
+    .btn-group .btn,
+    .btn-toolbar .btn,
+    .btn-inline,
+    .btn-icon,
+    .topbar-btn,
+    .topbar-toggle,
+    .floating-quick-add {
+        width: auto;
+    }
+}
+
+/* ============================================
+   PAGE-SPECIFIC MOBILE POLISH
+   ============================================ */
+@media (max-width: 767.98px) {
+    /* Dashboard */
+    .widget-grid {
+        gap: 12px;
+    }
+
+    .streak-widget {
+        padding: 16px;
+    }
+
+    .streak-number {
+        font-size: 38px;
+    }
+
+    .achievements-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+    }
+
+    .achievement-card {
+        padding: 10px 8px;
+    }
+
+    .customize-btn {
+        width: 46px;
+        height: 46px;
+        right: 14px;
+        bottom: 16px;
+        font-size: 16px;
+    }
+
+    #widgetCustomizer {
+        right: 10px !important;
+        bottom: 70px !important;
+        width: min(92vw, 320px) !important;
+    }
+
+    .overdue-banner {
+        padding: 12px;
+    }
+
+    .overdue-banner .d-flex {
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+
+    .overdue-banner .ms-auto {
+        margin-left: 0 !important;
+        width: 100%;
+        display: flex;
+        gap: 8px;
+    }
+
+    .overdue-banner .ms-auto .btn {
+        flex: 1;
+    }
+
+    /* Tasks */
+    .task-card > .d-flex.justify-content-between.align-items-start {
+        flex-direction: column;
+        align-items: stretch !important;
+        gap: 10px;
+    }
+
+    .task-card .task-actions {
+        margin-left: 0 !important;
+        width: 100%;
+        display: flex;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .task-card .task-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px 10px;
+    }
+
+    .task-card .task-meta span {
+        margin-right: 0;
+    }
+
+    .completed-tasks-header {
+        padding: 10px 12px;
+    }
+
+    /* Compact filter/search bars used in tasks and notes */
+    .card .card-body > form.d-flex.flex-wrap.gap-2.align-items-center .flex-grow-1,
+    .card .card-body > form.d-flex.flex-wrap.gap-2.align-items-center .form-select,
+    .card .card-body > form.d-flex.flex-wrap.gap-2.align-items-center .btn {
+        width: 100%;
+    }
+
+    .card .card-body > form.d-flex.flex-wrap.gap-2.align-items-center .ms-auto {
+        margin-left: 0 !important;
+        width: 100%;
+    }
+
+    /* Notes */
+    #viewNoteModal .ql-editor {
+        font-size: 13px !important;
+        line-height: 1.55 !important;
+    }
+
+    .note-attachments {
+        gap: 4px !important;
+    }
+
+    /* Study groups */
+    .group-card-link .card-body {
+        padding: 12px;
+    }
+
+    .group-icon,
+    .group-icon-bar {
+        width: 38px;
+        height: 38px;
+        font-size: 0.95rem;
+    }
+
+    .group-tabs .nav-link {
+        font-size: 0.78rem;
+        padding: 0.45rem 0.4rem;
+    }
+
+    #tabProgress .table {
+        min-width: 620px;
+    }
+
+    #tabTasks .table {
+        min-width: 760px;
+    }
+
+    .group-chat-panel .chat-messages {
+        padding: 0.75rem;
+    }
+
+    /* Pomodoro */
+    .timer-circle {
+        width: 208px !important;
+        height: 208px !important;
+        margin-bottom: 14px;
+    }
+
+    #timerDisplay {
+        font-size: 2.15rem !important;
+    }
+
+    #sessionType {
+        font-size: 12px !important;
+        padding: 0.45rem 0.65rem !important;
+    }
+
+    .pom-link-bar {
+        padding: 10px 12px;
+        border-radius: 10px;
+    }
+
+    .pom-link-heading {
+        font-size: 11px;
+    }
+
+    .pom-history-list {
+        max-height: 260px;
+    }
+
+    .pom-hist-row {
+        gap: 8px;
+        padding: 7px 0;
+    }
+
+    .pom-hist-icon {
+        width: 28px;
+        height: 28px;
+        font-size: 12px;
+    }
+
+    .pom-task-prompt-content,
+    .pom-celebration-content {
+        width: min(92vw, 390px);
+        padding: 22px 16px;
+        border-radius: 14px;
+    }
+
+    .pom-task-prompt-content h4,
+    .pom-celebration-content h3 {
+        font-size: 18px;
+    }
+
+    /* Calendar */
+    #calendar {
+        font-size: 12px;
+    }
+
+    .fc .fc-toolbar {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .fc .fc-toolbar-title {
+        font-size: 14px !important;
+    }
+
+    .fc .fc-button {
+        padding: 4px 8px !important;
+        font-size: 11px !important;
+    }
+
+    .fc .fc-col-header-cell-cushion {
+        font-size: 11px;
+        padding: 6px 2px;
+    }
+
+    .fc .fc-daygrid-day-number {
+        font-size: 11px;
+    }
+
+    .fc .fc-event {
+        font-size: 10px !important;
+        padding: 2px 4px !important;
+    }
+}
+
+@media (max-width: 575.98px) {
+    .task-actions .btn,
+    .d-flex.gap-1 .btn,
+    .group-tabs .nav-link,
+    #widgetCustomizer .btn,
+    .overdue-banner .btn {
+        width: auto;
+    }
+
+    .timer-circle {
+        width: 188px !important;
+        height: 188px !important;
+    }
+
+    #timerDisplay {
+        font-size: 1.95rem !important;
+    }
+
+    .fc .fc-header-toolbar {
+        margin-bottom: 0.75rem !important;
+    }
+
+    .fc .fc-toolbar-chunk {
+        width: 100%;
+        display: flex;
+        justify-content: center;
+    }
+
+    .fc .fc-button-group {
+        width: 100%;
+        display: flex;
+    }
+
+    .fc .fc-button-group .fc-button {
+        flex: 1;
+    }
+}
+
+@media (max-width: 359.98px) {
+    .content-wrapper {
+        padding: 10px 6px;
+    }
+
+    .topbar {
+        padding: 0 8px;
+    }
+
+    .topbar-title {
+        max-width: 34vw;
+        font-size: 13px;
+    }
+
+    .topbar-btn,
+    .topbar-toggle {
+        width: 32px;
+        height: 32px;
+        font-size: 12px;
+    }
+
+    .page-header h2 {
+        font-size: 16px;
+    }
+
+    .btn {
+        font-size: 12px;
+        padding: 0.35rem 0.5rem;
+    }
+
+    .task-card .task-actions {
+        justify-content: space-between;
+    }
+
+    .task-card .task-actions .btn {
+        min-width: 0;
+        padding-left: 0.45rem;
+        padding-right: 0.45rem;
+    }
+
+    #widgetCustomizer {
+        width: 94vw !important;
+        right: 3vw !important;
+    }
+
+    #inviteCodeDisplay,
+    input[name="invite_code"] {
+        letter-spacing: 1px !important;
+        font-size: 12px !important;
+    }
+
+    .fc .fc-toolbar-title {
+        font-size: 13px !important;
+    }
+
+    .fc .fc-button {
+        padding: 3px 6px !important;
+        font-size: 10px !important;
+    }
+
+    .fc .fc-event {
+        font-size: 9px !important;
+        padding: 1px 3px !important;
+    }
+}

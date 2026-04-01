@@ -199,6 +199,11 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-i
 
         <div class="sidebar-nav-label">Other</div>
 
+        <a href="<?php echo BASE_URL; ?>help.php" title="Help"
+           class="nav-link-sidebar <?php echo $current_page === 'help.php' ? 'active' : ''; ?>">
+            <i class="fas fa-circle-question"></i> <span class="sidebar-link-text">Help</span>
+        </a>
+
         <a href="<?php echo BASE_URL; ?>auth/profile.php" title="Profile"
            class="nav-link-sidebar <?php echo $current_page === 'profile.php' ? 'active' : ''; ?>">
             <i class="fas fa-user"></i> <span class="sidebar-link-text">Profile</span>

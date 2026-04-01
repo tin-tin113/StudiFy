@@ -315,10 +315,6 @@ if (isset($_SESSION['user_id'])) {
         <div class="container">
             <div class="d-flex flex-column flex-md-row justify-content-between align-items-center gap-2">
                 <p class="mb-0">&copy; <?php echo date('Y'); ?> Studify – Student Task Management System</p>
-                <div class="d-flex gap-3" style="font-size: 12px;">
-                    <span style="color: var(--text-muted);"><i class="fas fa-code"></i> PHP 8 + MySQL</span>
-                    <span style="color: var(--text-muted);"><i class="fab fa-bootstrap"></i> Bootstrap 5</span>
-                </div>
             </div>
         </div>
     </footer>
