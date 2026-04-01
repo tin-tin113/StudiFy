@@ -108,11 +108,20 @@ if ($running_in_docker && strtolower((string)$db_host) === 'localhost') {
 // Create connection
 mysqli_report(MYSQLI_REPORT_OFF);
 $conn = new mysqli();
+// Require TLS when connecting to TiDB Cloud or when CA/SSL env is provided.
+$is_tidb_host = stripos((string)$db_host, 'tidbcloud.com') !== false;
+$ssl_requested = $is_tidb_host || $db_ssl_ca_path !== '' || $db_ssl_ca !== '' || $db_ssl_ca_pem !== '' || $db_ssl_ca_b64 !== '';
+$connect_flags = 0;
 if ($db_ssl_ca_path !== '') {
     // Optional TLS for providers like TiDB Cloud.
     $conn->ssl_set(null, null, $db_ssl_ca_path, null, null);
+    $connect_flags |= MYSQLI_CLIENT_SSL;
+} elseif ($ssl_requested) {
+    // Request encrypted transport even when CA is provided by system trust store.
+    $conn->ssl_set(null, null, null, null, null);
+    $connect_flags |= MYSQLI_CLIENT_SSL;
 }
-$conn->real_connect($db_host, $db_user, $db_password, $db_name, $db_port);
+$conn->real_connect($db_host, $db_user, $db_password, $db_name, $db_port, null, $connect_flags);
 
 // Check connection
 if ($conn->connect_error) {
