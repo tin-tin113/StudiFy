@@ -47,6 +47,17 @@ runQuery($conn, "CREATE TABLE IF NOT EXISTS task_templates (
     INDEX idx_is_system (is_system)
 )", 'task_templates table');
 
+// Ensure user_achievements exists
+runQuery($conn, "CREATE TABLE IF NOT EXISTS user_achievements (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id INT NOT NULL,
+    achievement_key VARCHAR(100) NOT NULL,
+    unlocked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_achievement (user_id, achievement_key),
+    INDEX idx_user_id (user_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+)", 'user_achievements table');
+
 // Ensure tasks.user_id exists
 $res = $conn->query("SHOW COLUMNS FROM tasks LIKE 'user_id'");
 if ($res && $res->num_rows === 0) {

@@ -36,6 +36,36 @@ $db_password = getenv('DB_PASS') ?: '';
 $db_name = getenv('DB_NAME') ?: 'studify';
 $db_port = (int)(getenv('DB_PORT') ?: 3306);
 $db_ssl_ca = getenv('DB_SSL_CA') ?: '';
+$db_ssl_ca_pem = getenv('DB_SSL_CA_PEM') ?: '';
+$db_ssl_ca_b64 = getenv('DB_SSL_CA_B64') ?: '';
+
+$db_ssl_ca_path = '';
+$write_ca_to_temp = function ($pem) {
+    $pem = str_replace(["\r\n", "\r"], "\n", (string)$pem);
+    $pem = str_replace('\\n', "\n", $pem);
+    $pem = trim($pem);
+    if ($pem === '' || strpos($pem, 'BEGIN CERTIFICATE') === false) {
+        return '';
+    }
+    $tmp_path = sys_get_temp_dir() . '/db-ca.pem';
+    if (@file_put_contents($tmp_path, $pem) === false) {
+        return '';
+    }
+    return $tmp_path;
+};
+
+if ($db_ssl_ca !== '' && is_file($db_ssl_ca)) {
+    $db_ssl_ca_path = $db_ssl_ca;
+} elseif ($db_ssl_ca_pem !== '') {
+    $db_ssl_ca_path = $write_ca_to_temp($db_ssl_ca_pem);
+} elseif ($db_ssl_ca !== '' && strpos($db_ssl_ca, 'BEGIN CERTIFICATE') !== false) {
+    $db_ssl_ca_path = $write_ca_to_temp($db_ssl_ca);
+} elseif ($db_ssl_ca_b64 !== '') {
+    $decoded = base64_decode(trim($db_ssl_ca_b64), true);
+    if ($decoded !== false) {
+        $db_ssl_ca_path = $write_ca_to_temp($decoded);
+    }
+}
 
 if ($running_in_docker && strtolower((string)$db_host) === 'localhost') {
     $db_host = 'host.docker.internal';
@@ -45,11 +75,18 @@ echo "<h1>Studify - Database Setup</h1>";
 
 // Connect to MySQL (without database)
 mysqli_report(MYSQLI_REPORT_OFF);
-$conn = @new mysqli($db_host, $db_user, $db_password, '', $db_port);
-if (!$conn->connect_error && $db_ssl_ca !== '' && is_file($db_ssl_ca)) {
-    $conn->ssl_set(null, null, $db_ssl_ca, null, null);
-    $conn->real_connect($db_host, $db_user, $db_password, '', $db_port);
+$conn = new mysqli();
+$is_tidb_host = stripos((string)$db_host, 'tidbcloud.com') !== false;
+$ssl_requested = $is_tidb_host || $db_ssl_ca_path !== '' || $db_ssl_ca !== '' || $db_ssl_ca_pem !== '' || $db_ssl_ca_b64 !== '';
+$connect_flags = 0;
+if ($db_ssl_ca_path !== '') {
+    $conn->ssl_set(null, null, $db_ssl_ca_path, null, null);
+    $connect_flags |= MYSQLI_CLIENT_SSL;
+} elseif ($ssl_requested) {
+    $conn->ssl_set(null, null, null, null, null);
+    $connect_flags |= MYSQLI_CLIENT_SSL;
 }
+$conn->real_connect($db_host, $db_user, $db_password, '', $db_port, null, $connect_flags);
 
 if ($conn->connect_error) {
     die("<p style='color:red;'>Connection Failed: " . $conn->connect_error . "</p>");

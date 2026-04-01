@@ -92,9 +92,24 @@ function checkAndAwardAchievements(int $user_id, $conn, ?array $streak = null): 
         (SELECT COALESCE(SUM(status = 'Completed'), 0) FROM tasks WHERE user_id = ? AND parent_id IS NULL) as completed_tasks,
         (SELECT COUNT(*) FROM notes WHERE user_id = ?) as note_count,
         (SELECT COALESCE(SUM(duration), 0) FROM study_sessions WHERE user_id = ? AND session_type = 'Focus') as pomo_mins");
-    $stats_q->bind_param("iiii", $user_id, $user_id, $user_id, $user_id);
-    $stats_q->execute();
-    $stats = $stats_q->get_result()->fetch_assoc();
+    if (!$stats_q) {
+        error_log('checkAndAwardAchievements: failed to prepare stats query: ' . $conn->error);
+        $stats = [
+            'total_tasks' => 0,
+            'completed_tasks' => 0,
+            'note_count' => 0,
+            'pomo_mins' => 0,
+        ];
+    } else {
+        $stats_q->bind_param("iiii", $user_id, $user_id, $user_id, $user_id);
+        $stats_q->execute();
+        $stats = $stats_q->get_result()->fetch_assoc() ?: [
+            'total_tasks' => 0,
+            'completed_tasks' => 0,
+            'note_count' => 0,
+            'pomo_mins' => 0,
+        ];
+    }
 
     $note_count = intval($stats['note_count']);
     $pomo_mins  = intval($stats['pomo_mins']);
@@ -140,18 +155,26 @@ function checkAndAwardAchievements(int $user_id, $conn, ?array $streak = null): 
 
     // Load already-unlocked
     $unlocked_q = $conn->prepare("SELECT achievement_key, unlocked_at FROM user_achievements WHERE user_id = ?");
-    $unlocked_q->bind_param("i", $user_id);
-    $unlocked_q->execute();
-    $unlocked_rows = $unlocked_q->get_result()->fetch_all(MYSQLI_ASSOC);
-    $unlocked_map  = array_column($unlocked_rows, 'unlocked_at', 'achievement_key');
+    if (!$unlocked_q) {
+        error_log('checkAndAwardAchievements: failed to prepare unlocked query: ' . $conn->error);
+        $unlocked_map = [];
+    } else {
+        $unlocked_q->bind_param("i", $user_id);
+        $unlocked_q->execute();
+        $unlocked_rows = $unlocked_q->get_result()->fetch_all(MYSQLI_ASSOC);
+        $unlocked_map  = array_column($unlocked_rows, 'unlocked_at', 'achievement_key');
+    }
 
     $newly_awarded = [];
 
     // Prepare INSERT once outside the loop (was prepared inside on every iteration)
     $ins = $conn->prepare("INSERT IGNORE INTO user_achievements (user_id, achievement_key) VALUES (?, ?)");
+    if (!$ins) {
+        error_log('checkAndAwardAchievements: failed to prepare insert query: ' . $conn->error);
+    }
 
     foreach ($conditions as $key => $met) {
-        if ($met && !isset($unlocked_map[$key])) {
+        if ($met && !isset($unlocked_map[$key]) && $ins) {
             $ins->bind_param("is", $user_id, $key);
             $ins->execute();
             $unlocked_map[$key] = date('Y-m-d H:i:s');
