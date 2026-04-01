@@ -58,17 +58,45 @@ $db_password = getenv('DB_PASS') ?: ($local_config['DB_PASS'] ?? '');
 $db_name = getenv('DB_NAME') ?: ($local_config['DB_NAME'] ?? 'studify');
 $db_port = (int)(getenv('DB_PORT') ?: ($local_config['DB_PORT'] ?? 3306));
 $db_ssl_ca = getenv('DB_SSL_CA') ?: ($local_config['DB_SSL_CA'] ?? '');
+$db_ssl_ca_pem = getenv('DB_SSL_CA_PEM') ?: ($local_config['DB_SSL_CA_PEM'] ?? '');
 $db_ssl_ca_b64 = getenv('DB_SSL_CA_B64') ?: ($local_config['DB_SSL_CA_B64'] ?? '');
 $db_ssl_ca_path = '';
+
+// Normalize and persist CA cert to a temp PEM file when provided via env vars.
+$write_ca_to_temp = function ($pem) {
+    $pem = str_replace(["\r\n", "\r"], "\n", (string)$pem);
+    $pem = str_replace('\\n', "\n", $pem);
+    $pem = trim($pem);
+    if ($pem === '') {
+        return '';
+    }
+
+    // Basic guard to avoid writing random/invalid content.
+    if (strpos($pem, 'BEGIN CERTIFICATE') === false) {
+        return '';
+    }
+
+    $tmp_path = sys_get_temp_dir() . '/db-ca.pem';
+    if (@file_put_contents($tmp_path, $pem) === false) {
+        return '';
+    }
+    return $tmp_path;
+};
+
 if ($db_ssl_ca !== '' && is_file($db_ssl_ca)) {
+    // DB_SSL_CA can be an absolute path to a CA PEM file.
     $db_ssl_ca_path = $db_ssl_ca;
+} elseif ($db_ssl_ca_pem !== '') {
+    // DB_SSL_CA_PEM can contain the raw PEM certificate content.
+    $db_ssl_ca_path = $write_ca_to_temp($db_ssl_ca_pem);
+} elseif ($db_ssl_ca !== '' && strpos($db_ssl_ca, 'BEGIN CERTIFICATE') !== false) {
+    // Also allow DB_SSL_CA itself to contain PEM content.
+    $db_ssl_ca_path = $write_ca_to_temp($db_ssl_ca);
 } elseif ($db_ssl_ca_b64 !== '') {
-    $decoded = base64_decode($db_ssl_ca_b64, true);
+    // DB_SSL_CA_B64 should be base64-encoded PEM content.
+    $decoded = base64_decode(trim($db_ssl_ca_b64), true);
     if ($decoded !== false) {
-        $tmp_path = sys_get_temp_dir() . '/db-ca.pem';
-        if (@file_put_contents($tmp_path, $decoded) !== false) {
-            $db_ssl_ca_path = $tmp_path;
-        }
+        $db_ssl_ca_path = $write_ca_to_temp($decoded);
     }
 }
 
