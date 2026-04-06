@@ -5758,6 +5758,27 @@ img.topbar-user-avatar {
     border-top: 1px solid var(--border-color, #dee2e6);
 }
 
+.group-chat-panel #gcSendBtn {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    border: none;
+    background: var(--bs-success);
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.82rem;
+    transition: all 0.15s;
+    flex-shrink: 0;
+}
+
+.group-chat-panel #gcSendBtn:hover {
+    background: #157347;
+    transform: scale(1.05);
+}
+
 .group-task-item {
     transition: background 0.15s;
 }
