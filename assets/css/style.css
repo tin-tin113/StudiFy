@@ -5746,6 +5746,32 @@ img.topbar-user-avatar {
     color: #fff;
 }
 
+[data-theme="dark"] #tabProgress .table,
+[data-theme="dark"] #tabTasks .table {
+    --bs-table-bg: transparent;
+    --bs-table-color: var(--text-primary);
+    --bs-table-border-color: var(--border-color);
+}
+
+[data-theme="dark"] #tabProgress .table thead th,
+[data-theme="dark"] #tabTasks .table thead th,
+[data-theme="dark"] #tabProgress .table td,
+[data-theme="dark"] #tabTasks .table td {
+    color: var(--text-primary);
+    border-color: var(--border-color);
+    background: transparent;
+}
+
+[data-theme="dark"] #tabProgress .table-light,
+[data-theme="dark"] #tabTasks .table-light,
+[data-theme="dark"] #tabProgress .table-light > th,
+[data-theme="dark"] #tabTasks .table-light > th,
+[data-theme="dark"] #tabProgress .table-light > td,
+[data-theme="dark"] #tabTasks .table-light > td {
+    background: rgba(255, 255, 255, 0.04) !important;
+    color: var(--text-primary) !important;
+}
+
 .group-chat-panel {
     display: flex;
     flex-direction: column;
