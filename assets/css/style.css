@@ -3125,6 +3125,15 @@ h6 {
         flex-wrap: wrap;
         justify-content: flex-end;
     }
+
+    .landing-nav {
+        padding: 10px 0;
+    }
+
+    .landing-nav .btn {
+        font-size: 12px !important;
+        padding: 6px 14px;
+    }
 }
 
 @media (max-width: 767.98px) {
@@ -3143,7 +3152,7 @@ h6 {
     }
 
     .hero-section {
-        padding: 100px 0 48px;
+        padding: 90px 0 40px;
         min-height: auto;
     }
 
@@ -3376,9 +3385,26 @@ h6 {
         padding: 5px 12px;
     }
 
+    .landing-nav {
+        padding: 8px 0;
+    }
+
     .landing-nav .btn {
-        font-size: 12px !important;
-        padding: 6px 12px;
+        font-size: 11px !important;
+        padding: 5px 10px;
+    }
+
+    .landing-nav .nav-brand {
+        font-size: 16px;
+    }
+
+    .landing-nav .nav-brand .icon {
+        width: 28px;
+        height: 28px;
+    }
+
+    .hero-section {
+        padding: 80px 0 36px;
     }
 }
 

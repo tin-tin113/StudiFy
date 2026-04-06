@@ -59,11 +59,11 @@ if (isset($_SESSION['user_id'])) {
                 </div>
                 Studi<span style="color: var(--primary);">fy</span>
             </a>
-            <div class="d-flex gap-2 align-items-center">
+            <div class="d-flex gap-1 gap-md-2 align-items-center">
                 <a href="#features" class="d-none d-md-inline-block" style="font-size:13px; color:var(--text-secondary); text-decoration:none; margin-right:12px; font-weight:500;">Features</a>
                 <a href="#how-it-works" class="d-none d-md-inline-block" style="font-size:13px; color:var(--text-secondary); text-decoration:none; margin-right:12px; font-weight:500;">How It Works</a>
-                <a href="auth/login.php" class="btn btn-secondary" style="font-size: 13px;">Login</a>
-                <a href="auth/register.php" class="btn btn-primary" style="font-size: 13px;">Get Started</a>
+                <a href="auth/login.php" class="btn btn-secondary btn-sm">Login</a>
+                <a href="auth/register.php" class="btn btn-primary btn-sm">Get Started</a>
             </div>
         </div>
     </nav>
@@ -77,7 +77,7 @@ if (isset($_SESSION['user_id'])) {
                 <div class="hero-badge slide-up">
                     <i class="fas fa-graduation-cap"></i> Built for Students, by Students
                 </div>
-                <h1 class="slide-up delay-1">Stop Stressing About<br class="d-none d-md-inline">Deadlines. <span>Start Studying Smarter.</span></h1>
+                <h1 class="slide-up delay-1">Stop Stressing About <br class="d-none d-md-inline">Deadlines. <span>Start Studying Smarter.</span></h1>
                 <p class="slide-up delay-2" style="max-width: 540px; margin: 0 auto 32px;">
                     Studify is the all-in-one academic planner that organizes your semesters, tracks your tasks, times your study sessions, and keeps you accountable — so nothing slips through the cracks.
                 </p>
