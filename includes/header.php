@@ -55,6 +55,23 @@ if (isset($_SESSION['user_id']) && $user_role === 'student' && function_exists('
     $show_onboarding = needsOnboarding($_SESSION['user_id'], $conn);
 }
 
+// Lightweight activity tracking for "Live Users" counter (throttled to once per 2 min)
+if (isset($_SESSION['user_id'])) {
+    $now = time();
+    $last_tracked = $_SESSION['_last_activity_log'] ?? 0;
+    if ($now - $last_tracked > 120) { // every 2 minutes
+        $_SESSION['_last_activity_log'] = $now;
+        $act_uid = $_SESSION['user_id'];
+        $act_page = basename($_SERVER['PHP_SELF']);
+        $act_ip = $_SERVER['REMOTE_ADDR'] ?? null;
+        $act_stmt = $conn->prepare("INSERT INTO activity_log (user_id, action, details, ip_address) VALUES (?, 'page_view', ?, ?)");
+        if ($act_stmt) {
+            $act_stmt->bind_param("iss", $act_uid, $act_page, $act_ip);
+            $act_stmt->execute();
+        }
+    }
+}
+
 $csrf_token = generateCSRFToken();
 
 // Security headers

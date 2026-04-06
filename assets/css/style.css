@@ -288,6 +288,36 @@
     color: #fff;
 }
 
+/* ─── Theme Transition Animations ─── */
+.theme-transition-ready {
+    transition: background-color 0.4s ease, color 0.3s ease, border-color 0.4s ease !important;
+}
+.theme-transition-ready body,
+.theme-transition-ready .sidebar,
+.theme-transition-ready .topbar,
+.theme-transition-ready .main-content,
+.theme-transition-ready .card,
+.theme-transition-ready .modal-content,
+.theme-transition-ready .welcome-card,
+.theme-transition-ready .stat-card,
+.theme-transition-ready .form-control,
+.theme-transition-ready .form-select,
+.theme-transition-ready .table,
+.theme-transition-ready .dropdown-menu,
+.theme-transition-ready .list-group-item {
+    transition: background-color 0.4s ease, color 0.3s ease, border-color 0.4s ease, box-shadow 0.4s ease !important;
+}
+
+@keyframes themeFlash {
+    0%   { opacity: 1; }
+    100% { opacity: 0; }
+}
+
+@keyframes themeIconSpin {
+    0%   { transform: rotate(-180deg) scale(0.5); opacity: 0; }
+    100% { transform: rotate(0deg) scale(1); opacity: 1; }
+}
+
 /* ─── Base Reset ─── */
 *,
 *::before,

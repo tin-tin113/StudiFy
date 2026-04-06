@@ -13,6 +13,30 @@ requireAdmin();
 
 $page_title = 'Admin Dashboard';
 
+// Live/online users (active within last 10 minutes based on activity_log)
+$online_users = 0;
+$online_list = [];
+$online_q = $conn->prepare(
+    "SELECT u.id, u.name, u.role, u.profile_photo
+     FROM users u
+     WHERE u.id IN (
+         SELECT DISTINCT al.user_id
+         FROM activity_log al
+         WHERE al.created_at >= DATE_SUB(NOW(), INTERVAL 10 MINUTE)
+     )
+     ORDER BY u.name ASC"
+);
+if ($online_q) {
+    $online_q->execute();
+    $online_result = $online_q->get_result();
+    while ($row = $online_result->fetch_assoc()) {
+        $online_list[] = $row;
+    }
+    $online_users = count($online_list);
+}
+// Fallback: at minimum the admin is online
+if ($online_users === 0) $online_users = 1;
+
 // Statistics
 $total_users = getTotalUsers($conn);
 $total_tasks = getTotalSystemTasks($conn);
@@ -81,9 +105,84 @@ $completion_rate = $total_tasks > 0 ? round(($completed_tasks / $total_tasks) * 
         <!-- Welcome -->
         <div class="welcome-card mb-4">
             <div class="welcome-accent"></div>
-            <h4 class="mb-1"><i class="fas fa-chart-pie"></i> System Overview</h4>
-            <p class="text-muted mb-0">Monitor platform health, user activity, and overall system performance</p>
+            <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px;">
+                <div>
+                    <h4 class="mb-1"><i class="fas fa-chart-pie"></i> System Overview</h4>
+                    <p class="text-muted mb-0">Monitor platform health, user activity, and overall system performance</p>
+                </div>
+                <div class="live-users-badge" id="liveUsersBadge">
+                    <span class="live-pulse"></span>
+                    <i class="fas fa-signal"></i>
+                    <span class="live-count" id="liveCount"><?php echo $online_users; ?></span>
+                    <span class="live-label">Online Now</span>
+                </div>
+            </div>
         </div>
+
+<style>
+/* ── Live Users Badge ── */
+.live-users-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: linear-gradient(135deg, #065f46 0%, #059669 100%);
+    color: #fff;
+    padding: 10px 20px;
+    border-radius: 50px;
+    font-size: 13px;
+    font-weight: 600;
+    box-shadow: 0 4px 16px rgba(5, 150, 105, 0.35);
+    position: relative;
+    animation: liveBadgeEntry 0.6s ease-out;
+}
+.live-users-badge .live-pulse {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #34d399;
+    position: relative;
+    flex-shrink: 0;
+}
+.live-users-badge .live-pulse::before {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border-radius: 50%;
+    background: rgba(52, 211, 153, 0.5);
+    animation: livePulseRing 2s ease-in-out infinite;
+}
+.live-users-badge .live-count {
+    font-size: 22px;
+    font-weight: 800;
+    line-height: 1;
+    min-width: 20px;
+    text-align: center;
+}
+.live-users-badge .live-label {
+    font-size: 11px;
+    opacity: 0.85;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.live-users-badge i.fa-signal {
+    font-size: 12px;
+    opacity: 0.8;
+}
+@keyframes livePulseRing {
+    0%   { transform: scale(0.8); opacity: 0.8; }
+    50%  { transform: scale(1.6); opacity: 0; }
+    100% { transform: scale(0.8); opacity: 0; }
+}
+@keyframes liveBadgeEntry {
+    0%   { opacity: 0; transform: translateY(-10px) scale(0.9); }
+    100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+[data-theme="dark"] .live-users-badge {
+    background: linear-gradient(135deg, #064e3b 0%, #047857 100%);
+    box-shadow: 0 4px 20px rgba(5, 150, 105, 0.25);
+}
+</style>
 
         <!-- Stats Row 1 -->
         <div class="dashboard-grid">

@@ -64,6 +64,13 @@ runNotificationChecker($user_id, $conn);
 
 $hour = date('H');
 $greeting = $hour < 12 ? 'Good Morning' : ($hour < 17 ? 'Good Afternoon' : 'Good Evening');
+
+// First login detection (from registration auto-login)
+$is_first_login = false;
+if (isset($_SESSION['first_login']) && $_SESSION['first_login'] === true) {
+    $is_first_login = true;
+    unset($_SESSION['first_login']); // consume the flag
+}
 ?>
 <?php include '../includes/header.php'; ?>
 
@@ -555,5 +562,157 @@ function dismissOverdueBanner(btn) {
     }).catch(() => { if (btn) btn.disabled = false; });
 }
 </script>
+
+<?php if ($is_first_login): ?>
+<!-- Welcome Confetti Overlay -->
+<div id="welcomeOverlay" class="welcome-confetti-overlay">
+    <div class="welcome-confetti-content">
+        <div class="welcome-confetti-icon">🎉</div>
+        <h2>Welcome to Studify!</h2>
+        <p class="text-muted">Your account is ready. Let's start organizing your academic life!</p>
+        <div class="welcome-features-quick">
+            <div class="welcome-feature-chip"><i class="fas fa-tasks"></i> Task Manager</div>
+            <div class="welcome-feature-chip"><i class="fas fa-clock"></i> Pomodoro Timer</div>
+            <div class="welcome-feature-chip"><i class="fas fa-chart-line"></i> Analytics</div>
+            <div class="welcome-feature-chip"><i class="fas fa-user-friends"></i> Study Buddy</div>
+        </div>
+        <button class="btn btn-success btn-lg mt-3 px-5" onclick="dismissWelcome()" style="border-radius: 50px; font-weight: 700;">
+            <i class="fas fa-rocket"></i> Let's Go!
+        </button>
+    </div>
+</div>
+<style>
+.welcome-confetti-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 10000;
+    background: rgba(0,0,0,0.6);
+    backdrop-filter: blur(8px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: welcomeFadeIn 0.4s ease;
+    overflow: hidden;
+}
+.welcome-confetti-content {
+    text-align: center;
+    background: var(--bg-card, #fff);
+    border-radius: 24px;
+    padding: 48px 40px 40px;
+    max-width: 480px;
+    width: 90%;
+    box-shadow: 0 24px 64px rgba(0,0,0,0.3);
+    position: relative;
+    z-index: 2;
+    animation: welcomeBounceIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.welcome-confetti-content h2 {
+    font-size: 28px;
+    font-weight: 800;
+    margin: 16px 0 8px;
+    background: linear-gradient(135deg, #16A34A, #059669);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+.welcome-confetti-content p {
+    font-size: 14px;
+    margin-bottom: 20px;
+}
+.welcome-confetti-icon {
+    font-size: 64px;
+    animation: welcomeIconBounce 1s ease infinite;
+}
+.welcome-features-quick {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+    margin-top: 8px;
+}
+.welcome-feature-chip {
+    background: var(--primary-50, #f0fdf4);
+    color: var(--primary, #16a34a);
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.welcome-confetti-particle {
+    position: fixed;
+    z-index: 10001;
+    pointer-events: none;
+    border-radius: 2px;
+}
+@keyframes welcomeFadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+}
+@keyframes welcomeBounceIn {
+    0%   { opacity: 0; transform: scale(0.6) translateY(40px); }
+    100% { opacity: 1; transform: scale(1) translateY(0); }
+}
+@keyframes welcomeIconBounce {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-8px); }
+}
+@keyframes confettiFly {
+    0%   { transform: translateY(0) rotate(0deg); opacity: 1; }
+    100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
+}
+</style>
+<script>
+// Launch welcome confetti
+(function() {
+    const colors = ['#16a34a', '#059669', '#f59e0b', '#3b82f6', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
+    const overlay = document.getElementById('welcomeOverlay');
+    if (!overlay) return;
+
+    // Create confetti particles
+    for (let i = 0; i < 80; i++) {
+        const p = document.createElement('div');
+        p.className = 'welcome-confetti-particle';
+        const size = 6 + Math.random() * 10;
+        const isCircle = Math.random() > 0.5;
+        p.style.cssText = `
+            width: ${size}px;
+            height: ${isCircle ? size : size * 0.4}px;
+            background: ${colors[Math.floor(Math.random() * colors.length)]};
+            left: ${Math.random() * 100}vw;
+            top: -20px;
+            border-radius: ${isCircle ? '50%' : '2px'};
+            animation: confettiFly ${2.5 + Math.random() * 3}s linear forwards;
+            animation-delay: ${Math.random() * 1.5}s;
+        `;
+        document.body.appendChild(p);
+    }
+
+    // Cleanup confetti after animation
+    setTimeout(() => {
+        document.querySelectorAll('.welcome-confetti-particle').forEach(p => p.remove());
+    }, 6000);
+})();
+
+function dismissWelcome() {
+    const overlay = document.getElementById('welcomeOverlay');
+    if (overlay) {
+        overlay.style.transition = 'opacity 0.4s ease';
+        overlay.style.opacity = '0';
+        setTimeout(() => overlay.remove(), 400);
+    }
+    // Cleanup any remaining confetti
+    document.querySelectorAll('.welcome-confetti-particle').forEach(p => p.remove());
+    // Show a toast after dismiss
+    setTimeout(() => {
+        if (typeof StudifyToast !== 'undefined') {
+            StudifyToast.success('Welcome! 🎓', 'Start by creating a semester and adding your subjects.');
+        }
+    }, 500);
+}
+</script>
+<?php endif; ?>
 
 <?php include '../includes/footer.php'; ?>

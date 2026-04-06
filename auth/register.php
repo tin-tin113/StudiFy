@@ -5,6 +5,7 @@
 define('BASE_URL', '../');
 require_once '../config/db.php';
 require_once '../includes/auth.php';
+require_once '../includes/functions.php';
 
 if (isset($_SESSION['user_id'])) {
     header("Location: " . BASE_URL . "student/dashboard.php");
@@ -50,8 +51,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $stmt->bind_param("ssssi", $name, $email, $hashed_password, $course, $year_level);
             
             if ($stmt->execute()) {
-                $success = 'Registration successful! Redirecting to login...';
-                header("refresh:2; url=login.php");
+                // Auto-login after registration
+                $new_user_id = $conn->insert_id;
+                $new_user = [
+                    'id' => $new_user_id,
+                    'name' => $name,
+                    'email' => $email,
+                    'role' => 'student'
+                ];
+                secureLogin($new_user);
+                $_SESSION['first_login'] = true;
+                header("Location: " . BASE_URL . "student/dashboard.php");
+                exit();
             } else {
                 $error = 'Registration failed. Please try again.';
             }

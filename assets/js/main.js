@@ -61,18 +61,44 @@ const DarkMode = {
         const saved = localStorage.getItem('studify-theme');
         if (saved === 'dark') {
             document.documentElement.setAttribute('data-theme', 'dark');
+        } else {
+            // Default to light mode
+            document.documentElement.removeAttribute('data-theme');
+            localStorage.setItem('studify-theme', 'light');
         }
+        // Add smooth transition class for future toggles
+        requestAnimationFrame(() => {
+            document.documentElement.classList.add('theme-transition-ready');
+        });
         this.updateIcons();
     },
 
     toggle() {
         const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+
+        // Create a flash animation overlay for dramatic effect
+        const flash = document.createElement('div');
+        flash.style.cssText = `
+            position: fixed; inset: 0; z-index: 99999;
+            background: ${isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)'};
+            pointer-events: none;
+            animation: themeFlash 0.5s ease-out forwards;
+        `;
+        document.body.appendChild(flash);
+        setTimeout(() => flash.remove(), 600);
+
         if (isDark) {
             document.documentElement.removeAttribute('data-theme');
             localStorage.setItem('studify-theme', 'light');
+            if (typeof StudifyToast !== 'undefined') {
+                StudifyToast.show('info', '☀️ Light Mode', 'Switched to light theme', 2000);
+            }
         } else {
             document.documentElement.setAttribute('data-theme', 'dark');
             localStorage.setItem('studify-theme', 'dark');
+            if (typeof StudifyToast !== 'undefined') {
+                StudifyToast.show('info', '🌙 Dark Mode', 'Switched to dark theme', 2000);
+            }
         }
         this.updateIcons();
     },
@@ -81,6 +107,13 @@ const DarkMode = {
         const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
         document.querySelectorAll('.dark-mode-toggle i').forEach(icon => {
             icon.className = isDark ? 'fas fa-sun' : 'fas fa-moon';
+        });
+        // Add spin animation to the icon
+        document.querySelectorAll('.dark-mode-toggle i').forEach(icon => {
+            icon.style.animation = 'none';
+            requestAnimationFrame(() => {
+                icon.style.animation = 'themeIconSpin 0.5s ease';
+            });
         });
     }
 };

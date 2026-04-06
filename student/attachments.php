@@ -138,6 +138,16 @@ if ($action === 'upload') {
 
     $sql = "INSERT INTO attachments (" . implode(', ', $columns) . ") VALUES (" . implode(', ', $placeholders) . ")";
     $stmt = $conn->prepare($sql);
+    if (!$stmt) {
+        // Likely cause: group_task_id column doesn't exist — migration not run
+        @unlink($dest);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Database schema error. Please ask admin to run group attachments migration.',
+            'debug'   => APP_ENV !== 'production' ? $conn->error : null
+        ]);
+        exit();
+    }
     $stmt->bind_param($types, ...$values);
 
     if ($stmt->execute()) {
@@ -154,8 +164,12 @@ if ($action === 'upload') {
             ]
         ]);
     } else {
-        unlink($dest);
-        echo json_encode(['success' => false, 'message' => 'Database error']);
+        @unlink($dest);
+        echo json_encode([
+            'success' => false,
+            'message' => 'Database error: ' . ($stmt->error ?: 'unknown'),
+            'debug'   => APP_ENV !== 'production' ? $stmt->error : null
+        ]);
     }
     exit();
 }
