@@ -329,6 +329,7 @@
 
 html {
     scroll-behavior: smooth;
+    overflow-x: hidden;
 }
 
 body {
@@ -2873,6 +2874,14 @@ h6 {
     margin-right: auto;
 }
 
+/* --- CTA Buttons --- */
+.cta-buttons {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
 /* --- Footer --- */
 .landing-footer {
     background: #111827;
@@ -3090,6 +3099,32 @@ h6 {
         padding: 20px 16px;
         margin: 0 auto;
     }
+
+    /* Keep feature cards compact on tablet */
+    .feature-card {
+        padding: 24px 16px;
+    }
+
+    .feature-card h4 {
+        font-size: 14px;
+    }
+
+    .feature-card p {
+        font-size: 12px;
+    }
+
+    .feature-card .feature-icon {
+        width: 44px;
+        height: 44px;
+        font-size: 17px;
+        margin-bottom: 12px;
+    }
+
+    /* Nav button wrapping */
+    .landing-nav .d-flex {
+        flex-wrap: wrap;
+        justify-content: flex-end;
+    }
 }
 
 @media (max-width: 767.98px) {
@@ -3113,11 +3148,13 @@ h6 {
     }
 
     .hero-section h1 {
-        font-size: 26px;
+        font-size: 24px;
+        letter-spacing: -0.5px;
     }
 
     .hero-section p {
-        font-size: 14px;
+        font-size: 13px;
+        margin-bottom: 20px;
     }
 
     .hero-buttons {
@@ -3137,11 +3174,52 @@ h6 {
 
     .highlights-grid {
         grid-template-columns: 1fr 1fr;
-        gap: 16px;
+        gap: 12px;
+    }
+
+    .highlight-item {
+        padding: 16px 10px;
+    }
+
+    .highlight-item h5 {
+        font-size: 12px;
+    }
+
+    .highlight-item p {
+        font-size: 11px;
+    }
+
+    .highlight-icon {
+        width: 36px;
+        height: 36px;
+        font-size: 15px;
+        margin-bottom: 10px;
     }
 
     .how-card {
-        padding: 28px 20px;
+        padding: 24px 12px;
+    }
+
+    .how-card h4 {
+        font-size: 13px;
+    }
+
+    .how-card p {
+        font-size: 11px;
+    }
+
+    .how-icon {
+        width: 40px;
+        height: 40px;
+        font-size: 16px;
+        margin: 6px auto 12px;
+    }
+
+    .how-number {
+        width: 26px;
+        height: 26px;
+        font-size: 12px;
+        top: -13px;
     }
 
     .timer-circle {
@@ -3152,11 +3230,67 @@ h6 {
     .features-section,
     .how-section,
     .highlights-section {
-        padding: 56px 0;
+        padding: 48px 0;
+    }
+
+    .section-header {
+        margin-bottom: 32px;
     }
 
     .section-header h2 {
+        font-size: 20px;
+    }
+
+    .section-header p {
+        font-size: 13px;
+    }
+
+    .feature-card {
+        padding: 20px 12px;
+    }
+
+    .feature-card h4 {
+        font-size: 13px;
+        margin-bottom: 4px;
+    }
+
+    .feature-card p {
+        font-size: 11px;
+        line-height: 1.5;
+    }
+
+    .feature-card .feature-icon {
+        width: 40px;
+        height: 40px;
+        font-size: 16px;
+        margin-bottom: 10px;
+        border-radius: 10px;
+    }
+
+    .cta-section {
+        padding: 56px 0;
+    }
+
+    .cta-section h2 {
         font-size: 22px;
+    }
+
+    .cta-section p {
+        font-size: 13px;
+    }
+
+    .cta-buttons {
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .cta-buttons .btn-hero {
+        width: 100%;
+        max-width: 300px;
+        justify-content: center;
+        padding: 12px 24px !important;
+        font-size: 14px !important;
     }
 
     .auth-card {
@@ -3179,7 +3313,7 @@ h6 {
     }
 
     .highlights-grid {
-        grid-template-columns: 1fr;
+        grid-template-columns: 1fr 1fr;
     }
 
     .hero-section h1 {
@@ -3187,7 +3321,100 @@ h6 {
     }
 
     .cta-section h2 {
-        font-size: 22px;
+        font-size: 20px;
+    }
+
+    /* Scale down feature cards further */
+    .feature-card {
+        padding: 16px 10px;
+    }
+
+    .feature-card .feature-icon {
+        width: 36px;
+        height: 36px;
+        font-size: 14px;
+        margin-bottom: 8px;
+    }
+
+    .feature-card h4 {
+        font-size: 12px;
+    }
+
+    .feature-card p {
+        font-size: 10.5px;
+        line-height: 1.45;
+    }
+
+    .how-card {
+        padding: 20px 8px;
+    }
+
+    .how-card h4 {
+        font-size: 12px;
+    }
+
+    .how-card p {
+        font-size: 10.5px;
+    }
+
+    .how-icon {
+        width: 36px;
+        height: 36px;
+        font-size: 14px;
+        border-radius: 10px;
+    }
+
+    .how-number {
+        width: 24px;
+        height: 24px;
+        font-size: 11px;
+        top: -12px;
+    }
+
+    .hero-badge {
+        font-size: 11px;
+        padding: 5px 12px;
+    }
+
+    .landing-nav .btn {
+        font-size: 12px !important;
+        padding: 6px 12px;
+    }
+}
+
+/* Ultra-small screens (iPhone SE, Galaxy Fold) */
+@media (max-width: 359.98px) {
+    .hero-section h1 {
+        font-size: 20px;
+    }
+
+    .hero-section p {
+        font-size: 12px;
+    }
+
+    .feature-card p {
+        display: none;
+    }
+
+    .feature-card {
+        padding: 14px 8px;
+    }
+
+    .feature-card h4 {
+        font-size: 11px;
+    }
+
+    .how-card p {
+        font-size: 10px;
+    }
+
+    .section-header h2 {
+        font-size: 18px;
+    }
+
+    .landing-nav .btn {
+        font-size: 11px !important;
+        padding: 5px 10px;
     }
 }
 

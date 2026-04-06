@@ -40,6 +40,7 @@ if (isset($_SESSION['user_id'])) {
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="assets/css/style.css?v=<?php echo filemtime(__DIR__ . '/assets/css/style.css'); ?>">
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Crect width='40' height='40' rx='10' fill='%2316A34A'/%3E%3Cpath d='M10 13.5c0-.6.4-1 1-1 1.5 0 4.2.5 9 2.5v13.5c-4.8-2-7.5-2.5-9-2.5-.6 0-1-.4-1-1V13.5z' fill='%23fff' opacity='.9'/%3E%3Cpath d='M30 13.5c0-.6-.4-1-1-1-1.5 0-4.2.5-9 2.5v13.5c4.8-2 7.5-2.5 9-2.5.6 0 1-.4 1-1V13.5z' fill='%23fff' opacity='.7'/%3E%3C/svg%3E">
+    <noscript><style>.fade-in-up { opacity: 1 !important; transform: none !important; }</style></noscript>
 </head>
 <body class="landing-page">
 
@@ -76,7 +77,7 @@ if (isset($_SESSION['user_id'])) {
                 <div class="hero-badge slide-up">
                     <i class="fas fa-graduation-cap"></i> Built for Students, by Students
                 </div>
-                <h1 class="slide-up delay-1">Stop Stressing About<br>Deadlines. <span>Start Studying Smarter.</span></h1>
+                <h1 class="slide-up delay-1">Stop Stressing About<br class="d-none d-md-inline">Deadlines. <span>Start Studying Smarter.</span></h1>
                 <p class="slide-up delay-2" style="max-width: 540px; margin: 0 auto 32px;">
                     Studify is the all-in-one academic planner that organizes your semesters, tracks your tasks, times your study sessions, and keeps you accountable — so nothing slips through the cracks.
                 </p>
@@ -168,8 +169,8 @@ if (isset($_SESSION['user_id'])) {
                 <p>Six powerful tools working together so you never miss a deadline or lose focus again.</p>
             </div>
 
-            <div class="row g-4">
-                <div class="col-md-4 fade-in-up">
+            <div class="row g-3 g-md-4">
+                <div class="col-6 col-md-4 fade-in-up">
                     <div class="feature-card">
                         <div class="feature-icon" style="background: var(--primary-50); color: var(--primary);">
                             <i class="fas fa-layer-group"></i>
@@ -178,7 +179,7 @@ if (isset($_SESSION['user_id'])) {
                         <p>Structure your year into semesters and subjects. Every task, note, and session maps to your real academic schedule.</p>
                     </div>
                 </div>
-                <div class="col-md-4 fade-in-up">
+                <div class="col-6 col-md-4 fade-in-up">
                     <div class="feature-card">
                         <div class="feature-icon" style="background: var(--info-light); color: var(--info);">
                             <i class="fas fa-tasks"></i>
@@ -187,7 +188,7 @@ if (isset($_SESSION['user_id'])) {
                         <p>Create tasks with deadlines, priorities, and types. Filter, sort, and toggle status with one click — no page reloads.</p>
                     </div>
                 </div>
-                <div class="col-md-4 fade-in-up">
+                <div class="col-6 col-md-4 fade-in-up">
                     <div class="feature-card">
                         <div class="feature-icon" style="background: var(--danger-light); color: var(--danger);">
                             <i class="fas fa-stopwatch"></i>
@@ -196,7 +197,7 @@ if (isset($_SESSION['user_id'])) {
                         <p>25-minute focus sessions with break intervals. Every session is logged so you can see exactly where your hours go.</p>
                     </div>
                 </div>
-                <div class="col-md-4 fade-in-up">
+                <div class="col-6 col-md-4 fade-in-up">
                     <div class="feature-card">
                         <div class="feature-icon" style="background: var(--warning-light); color: var(--warning);">
                             <i class="fas fa-calendar-check"></i>
@@ -205,7 +206,7 @@ if (isset($_SESSION['user_id'])) {
                         <p>See every deadline on an interactive calendar, color-coded by priority. Drag tasks to reschedule instantly.</p>
                     </div>
                 </div>
-                <div class="col-md-4 fade-in-up">
+                <div class="col-6 col-md-4 fade-in-up">
                     <div class="feature-card">
                         <div class="feature-icon" style="background: var(--success-light); color: var(--success);">
                             <i class="fas fa-chart-line"></i>
@@ -214,7 +215,7 @@ if (isset($_SESSION['user_id'])) {
                         <p>Track your study streaks, weekly hours, and productivity trends. Data-driven insights to optimize your study habits.</p>
                     </div>
                 </div>
-                <div class="col-md-4 fade-in-up">
+                <div class="col-6 col-md-4 fade-in-up">
                     <div class="feature-card">
                         <div class="feature-icon" style="background: #F3E8FF; color: #7C3AED;">
                             <i class="fas fa-user-friends"></i>
@@ -236,8 +237,8 @@ if (isset($_SESSION['user_id'])) {
                 <p>Get started in under a minute. No setup wizards, no complicated onboarding.</p>
             </div>
 
-            <div class="row g-4 align-items-stretch">
-                <div class="col-md-4 fade-in-up">
+            <div class="row g-3 g-md-4 align-items-stretch">
+                <div class="col-4 fade-in-up">
                     <div class="how-card">
                         <div class="how-number">1</div>
                         <div class="how-icon"><i class="fas fa-user-plus"></i></div>
@@ -245,7 +246,7 @@ if (isset($_SESSION['user_id'])) {
                         <p>Sign up with your name and school email. Your workspace is ready immediately — no downloads, no installs.</p>
                     </div>
                 </div>
-                <div class="col-md-4 fade-in-up">
+                <div class="col-4 fade-in-up">
                     <div class="how-card">
                         <div class="how-number">2</div>
                         <div class="how-icon"><i class="fas fa-sitemap"></i></div>
@@ -253,7 +254,7 @@ if (isset($_SESSION['user_id'])) {
                         <p>Create a semester, add your subjects, then drop in tasks with deadlines and priorities. The structure mirrors your real schedule.</p>
                     </div>
                 </div>
-                <div class="col-md-4 fade-in-up">
+                <div class="col-4 fade-in-up">
                     <div class="how-card">
                         <div class="how-number">3</div>
                         <div class="how-icon"><i class="fas fa-rocket"></i></div>
@@ -299,7 +300,7 @@ if (isset($_SESSION['user_id'])) {
             <div class="cta-badge"><i class="fas fa-gift"></i> 100% Free</div>
             <h2>Your Best Semester Starts Here</h2>
             <p>No credit card. No trial period. Just sign up and start organizing your academic life today.</p>
-            <div class="d-flex gap-3 justify-content-center flex-wrap">
+            <div class="cta-buttons">
                 <a href="auth/register.php" class="btn-hero btn-hero-primary" style="background:white; color:var(--primary); display:inline-flex; font-size:15px; padding: 14px 32px;">
                     <i class="fas fa-arrow-right"></i> Create Free Account
                 </a>
