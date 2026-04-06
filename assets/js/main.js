@@ -125,21 +125,65 @@ const Sidebar = {
         const sidebar = document.querySelector('.sidebar');
         const overlay = document.querySelector('.sidebar-overlay');
         const collapseBtn = document.getElementById('sidebarCollapseBtn');
+        const mobileMq = window.matchMedia('(max-width: 991.98px)');
+
+        const closeMobileSidebar = () => {
+            if (!sidebar) return;
+            sidebar.classList.remove('show');
+            if (overlay) overlay.classList.remove('show');
+            document.body.style.overflow = '';
+            if (toggle) toggle.setAttribute('aria-expanded', 'false');
+        };
+
+        const openMobileSidebar = () => {
+            if (!sidebar) return;
+            sidebar.classList.add('show');
+            if (overlay) overlay.classList.add('show');
+            document.body.style.overflow = 'hidden';
+            if (toggle) toggle.setAttribute('aria-expanded', 'true');
+        };
 
         // Mobile hamburger toggle
         if (toggle && sidebar) {
+            toggle.setAttribute('aria-controls', 'sidebar');
+            toggle.setAttribute('aria-expanded', 'false');
             toggle.addEventListener('click', () => {
-                sidebar.classList.toggle('show');
-                if (overlay) overlay.classList.toggle('show');
+                if (!mobileMq.matches) return;
+                if (sidebar.classList.contains('show')) {
+                    closeMobileSidebar();
+                } else {
+                    openMobileSidebar();
+                }
             });
         }
 
         if (overlay) {
             overlay.addEventListener('click', () => {
-                sidebar.classList.remove('show');
-                overlay.classList.remove('show');
+                closeMobileSidebar();
             });
         }
+
+        // Close sidebar after selecting a nav link on mobile
+        if (sidebar) {
+            sidebar.querySelectorAll('a.nav-link-sidebar').forEach(link => {
+                link.addEventListener('click', () => {
+                    if (mobileMq.matches) closeMobileSidebar();
+                });
+            });
+        }
+
+        // Keep mobile/desktop states in sync when resizing
+        const syncSidebarMode = () => {
+            if (!mobileMq.matches) {
+                closeMobileSidebar();
+            }
+        };
+        if (typeof mobileMq.addEventListener === 'function') {
+            mobileMq.addEventListener('change', syncSidebarMode);
+        } else {
+            mobileMq.addListener(syncSidebarMode);
+        }
+        window.addEventListener('resize', syncSidebarMode);
 
         // Desktop collapse toggle
         if (collapseBtn && sidebar) {

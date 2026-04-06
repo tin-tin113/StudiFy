@@ -140,7 +140,7 @@ if (isset($_SESSION['first_login']) && $_SESSION['first_login'] === true) {
                     <div class="fw-700" style="font-size:14px;">You have <?php echo $overdue_count; ?> overdue task<?php echo $overdue_count > 1 ? 's' : ''; ?></div>
                     <div style="font-size:12px;opacity:.9;">These tasks have passed their deadline. Consider completing or rescheduling them.</div>
                 </div>
-                <div class="ms-auto d-flex gap-2" style="white-space:nowrap;">
+                <div class="overdue-banner-actions ms-auto d-flex gap-2">
                     <button type="button" class="btn btn-sm btn-outline-secondary" onclick="dismissOverdueBanner(this)">
                         <i class="fas fa-times"></i> Dismiss
                     </button>
@@ -297,8 +297,8 @@ if (isset($_SESSION['first_login']) && $_SESSION['first_login'] === true) {
                     <div class="progress-bar bg-success" style="width:<?php echo $completion_pct; ?>%"></div>
                 </div>
                 <div class="row">
-                    <div class="col-md-6"><div class="chart-container"><canvas id="statusChart"></canvas></div></div>
-                    <div class="col-md-6"><div class="chart-container"><canvas id="priorityChart"></canvas></div></div>
+                    <div class="col-6"><div class="chart-container"><canvas id="statusChart"></canvas></div></div>
+                    <div class="col-6"><div class="chart-container"><canvas id="priorityChart"></canvas></div></div>
                 </div>
             </div>
         </div>
@@ -358,7 +358,7 @@ if (isset($_SESSION['first_login']) && $_SESSION['first_login'] === true) {
                     <?php foreach ($subjects as $subject):
                         $task_count = count(getSubjectTasks($subject['id'], $conn));
                     ?>
-                    <div class="col-md-6">
+                    <div class="col-6">
                         <div class="d-flex align-items-center gap-3 p-3 rounded-md" style="background:var(--bg-card-hover);border:1px solid var(--border-color);">
                             <div style="width:36px;height:36px;border-radius:8px;background:var(--primary-50);color:var(--primary);display:flex;align-items:center;justify-content:center;">
                                 <i class="fas fa-book" style="font-size:14px;"></i>
@@ -646,6 +646,57 @@ function dismissOverdueBanner(btn) {
     z-index: 10001;
     pointer-events: none;
     border-radius: 2px;
+}
+
+@media (max-width: 575.98px) {
+    .welcome-confetti-overlay {
+        align-items: flex-end;
+        padding: 12px;
+    }
+
+    .welcome-confetti-content {
+        width: 100%;
+        max-width: 100%;
+        max-height: 82vh;
+        overflow-y: auto;
+        border-radius: 16px;
+        padding: 24px 16px 18px;
+    }
+
+    .welcome-confetti-content h2 {
+        font-size: 22px;
+        margin-top: 10px;
+    }
+
+    .welcome-confetti-content p {
+        font-size: 13px;
+    }
+
+    .welcome-confetti-icon {
+        font-size: 48px;
+    }
+
+    .welcome-feature-chip {
+        font-size: 11px;
+        padding: 5px 10px;
+    }
+
+    .welcome-confetti-content .btn.btn-lg {
+        width: 100%;
+        font-size: 14px;
+        padding: 10px 14px !important;
+    }
+}
+
+@media (max-width: 359.98px) {
+    .welcome-confetti-content {
+        max-height: 78vh;
+        padding: 20px 12px 14px;
+    }
+
+    .welcome-confetti-content h2 {
+        font-size: 19px;
+    }
 }
 @keyframes welcomeFadeIn {
     from { opacity: 0; }

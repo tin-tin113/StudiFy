@@ -273,7 +273,7 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-i
                 <i class="fas fa-bell"></i>
                 <?php if ($notif_total > 0): ?><span class="badge-dot"></span><?php endif; ?>
             </button>
-            <ul class="dropdown-menu dropdown-menu-end notification-dropdown" style="min-width: 340px; max-height: 420px; overflow-y: auto;">
+            <ul class="dropdown-menu dropdown-menu-end notification-dropdown notification-menu" style="max-height: 420px; overflow-y: auto;">
                 <li class="px-3 py-2 d-flex justify-content-between align-items-center">
                     <span style="font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px;">Notifications</span>
                     <?php if ($unread_notif_count > 0): ?>
@@ -302,19 +302,19 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-i
                         $rn_unread = !$rn['is_read'];
                     ?>
                     <li>
-                        <a class="dropdown-item d-flex align-items-start gap-2 <?php echo $rn_unread ? 'fw-600' : ''; ?>" 
+                        <a class="dropdown-item notification-entry d-flex align-items-start gap-2 <?php echo $rn_unread ? 'fw-600' : ''; ?>" 
                            href="<?php echo BASE_URL; ?>student/notifications.php"
                            style="white-space: normal; padding: 10px 16px; <?php echo $rn_unread ? 'background: var(--primary-50, rgba(22,163,74,0.04));' : ''; ?>">
-                            <i class="<?php echo $rn_icon[0]; ?> mt-1" style="color: <?php echo $rn_icon[1]; ?>; font-size: 13px; flex-shrink: 0;"></i>
-                            <div style="min-width: 0;">
-                                <div style="font-size: 12.5px; line-height: 1.4;">
+                            <i class="<?php echo $rn_icon[0]; ?> mt-1 notification-entry-icon" style="color: <?php echo $rn_icon[1]; ?>;"></i>
+                            <div class="notification-entry-content">
+                                <div class="notification-entry-title">
                                     <?php if ($rn_unread): ?><span class="notification-dot"></span><?php endif; ?>
                                     <?php echo htmlspecialchars($rn['title']); ?>
                                 </div>
-                                <div class="text-muted" style="font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <div class="text-muted notification-entry-message">
                                     <?php echo htmlspecialchars(mb_substr($rn['message'], 0, 60)); ?><?php echo mb_strlen($rn['message']) > 60 ? '...' : ''; ?>
                                 </div>
-                                <div class="text-muted" style="font-size: 10px; margin-top: 2px;">
+                                <div class="text-muted notification-entry-time">
                                     <?php echo notificationTimeAgo($rn['created_at']); ?>
                                 </div>
                             </div>
@@ -424,12 +424,12 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-i
         ?>
         <div class="card mb-4 onboarding-card" id="onboardingCard">
             <div class="card-body">
-                <div class="d-flex justify-content-between align-items-start mb-3">
-                    <div>
+                <div class="d-flex justify-content-between align-items-start mb-3 onboarding-header">
+                    <div class="onboarding-intro">
                         <h5 class="fw-700 mb-1"><i class="fas fa-rocket text-primary"></i> Welcome to Studify! Let's get you set up.</h5>
                         <p class="text-muted mb-2" style="font-size: 13px;">Complete these steps to start organizing your academic life.</p>
                         <!-- Progress Bar -->
-                        <div class="d-flex align-items-center gap-2 mt-2">
+                        <div class="d-flex align-items-center gap-2 mt-2 onboarding-progress-row">
                             <div class="progress flex-grow-1" style="height: 8px; max-width: 300px;">
                                 <div class="progress-bar bg-success" role="progressbar" style="width: <?php echo $percentage; ?>%" 
                                      aria-valuenow="<?php echo $percentage; ?>" aria-valuemin="0" aria-valuemax="100"></div>
@@ -437,7 +437,7 @@ header("Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-i
                             <small class="text-muted fw-600"><?php echo $completed; ?>/<?php echo $total; ?> (<?php echo $percentage; ?>%)</small>
                         </div>
                     </div>
-                    <button class="btn btn-sm btn-secondary" onclick="dismissOnboarding()" title="Dismiss">
+                    <button class="btn btn-sm btn-secondary onboarding-dismiss" onclick="dismissOnboarding()" title="Dismiss">
                         <i class="fas fa-times"></i>
                     </button>
                 </div>
